@@ -20,14 +20,14 @@ var scanCmd = &cobra.Command{
 }
 
 func init() {
-	// D-14 flag surface (subset for Walking Skeleton; remaining flags wired in Plan 03)
+	// D-14 full flag surface for mimir scan
 	scanCmd.Flags().StringP("format", "f", "human", "Output format: human or json")
 	scanCmd.Flags().Bool("exit-zero", false, "Always exit 0 even when findings are present (CI soft mode)")
 	scanCmd.Flags().Int("max-file-size", 10, "Skip files larger than this size in MB (0 = no limit)")
 	scanCmd.Flags().Bool("no-entropy", false, "Disable Shannon entropy check (more findings, more noise)")
 	scanCmd.Flags().BoolP("verbose", "v", false, "Enable verbose diagnostic output to stderr")
 	scanCmd.Flags().Bool("quiet", false, "Suppress end-of-scan summary line (findings still printed)")
-	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: use embedded config)")
+	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
 
 	rootCmd.AddCommand(scanCmd)
 }
@@ -39,14 +39,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 		paths = []string{"."}
 	}
 
-	// 2. Load default config (Plan 03 wires full config discovery)
-	cfg, err := mimirconfig.LoadDefault()
+	// 2. Load config with full precedence: --config > .mimir.toml in scan root > embedded defaults (CFG-02)
+	flagConfig, _ := cmd.Flags().GetString("config")
+	scanRoot := resolveScanRoot(paths)
+	cfg, err := mimirconfig.LoadConfig(flagConfig, scanRoot)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error loading config:", err)
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
 
-	// 3. Apply flags to cfg
+	// 3. Apply CLI flags to cfg (these override config-file values for runtime behavior)
 	noEntropy, _ := cmd.Flags().GetBool("no-entropy")
 	cfg.NoEntropy = noEntropy
 
@@ -56,39 +58,63 @@ func runScan(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	cfg.Verbose = verbose
 
-	// 4. Build engine
+	// 4. Build engine and scanner
 	engine := detect.NewEngine(cfg)
-
-	// 5. Build scanner
 	s := scanner.New(engine, cfg)
 
-	// 6. Scan
+	// 5. Scan
 	findings, stats, err := s.Scan(cmd.Context(), paths)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
 
-	// 7. Output
+	// 6. Output: determine format and color settings
+	format, _ := cmd.Flags().GetString("format")
 	noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
+	// Also honor NO_COLOR env var (D-14; fatih/color checks it at init, but explicit override for clarity)
 	noColor = noColor || os.Getenv("NO_COLOR") != ""
-
 	quiet, _ := cmd.Flags().GetBool("quiet")
 
-	format, _ := cmd.Flags().GetString("format")
 	if format == "json" {
-		// JSON output is implemented in Plan 03
-		fmt.Fprintln(os.Stderr, "JSON output not yet implemented")
-		os.Exit(2)
+		// JSON output to stdout (D-03); findings already have redacted Secret fields (OUT-03)
+		if err := output.WriteJSON(os.Stdout, findings, stats); err != nil {
+			fmt.Fprintln(os.Stderr, "error encoding JSON:", err)
+			os.Exit(2)
+		}
+	} else {
+		// Human-readable output (default) (D-12)
+		output.WriteHuman(os.Stdout, findings, stats, noColor, quiet)
 	}
 
-	output.WriteHuman(os.Stdout, findings, stats, noColor, quiet)
-
-	// 8. Exit code (IFACE-02): 0=clean, 1=findings, 2=error
+	// 7. Exit code contract (IFACE-02): 0=clean, 1=findings (unless --exit-zero), 2=error
 	exitZero, _ := cmd.Flags().GetBool("exit-zero")
 	if len(findings) > 0 && !exitZero {
 		os.Exit(1)
 	}
 
 	return nil
+}
+
+// resolveScanRoot returns the first directory from paths, or "." if paths is
+// empty or the first path is not a directory. Used for config discovery (CFG-02).
+func resolveScanRoot(paths []string) string {
+	if len(paths) == 0 {
+		return "."
+	}
+	info, err := os.Stat(paths[0])
+	if err != nil {
+		return "."
+	}
+	if info.IsDir() {
+		return paths[0]
+	}
+	// First path is a file; use its directory
+	dir := paths[0]
+	for i := len(dir) - 1; i >= 0; i-- {
+		if dir[i] == '/' || dir[i] == '\\' {
+			return dir[:i]
+		}
+	}
+	return "."
 }

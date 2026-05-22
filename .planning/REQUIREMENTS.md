@@ -9,31 +9,31 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Detection Engine
 
-- [ ] **DET-01**: Mimir detects secrets via known-pattern regex signatures (AWS keys, GitHub tokens, Stripe keys, private keys, etc.) from a curated built-in ruleset
+- [x] **DET-01**: Mimir detects secrets via known-pattern regex signatures (AWS keys, GitHub tokens, Stripe keys, private keys, etc.) from a curated built-in ruleset
 - [ ] **DET-02**: Mimir detects generic/unknown secrets via Shannon entropy analysis, gated by keyword/context to limit noise
 - [ ] **DET-03**: Mimir detects database/connection strings (e.g. `postgres://`, `mongodb://`, `redis://`, JDBC) and isolates the embedded credential
-- [ ] **DET-04**: Mimir runs a keyword pre-filter so a rule's regex only executes when its keyword is present (performance + precision)
+- [x] **DET-04**: Mimir runs a keyword pre-filter so a rule's regex only executes when its keyword is present (performance + precision)
 - [ ] **DET-05**: Custom rules are RE2-validated at config load; patterns using unsupported syntax (lookahead/backreferences) are rejected with a clear error
 
 ### Scanning
 
-- [ ] **SCAN-01**: User can scan the working-tree files of a repo/directory
-- [ ] **SCAN-02**: User can scan `.env` and config files (yaml/json/etc.) for secrets
+- [x] **SCAN-01**: User can scan the working-tree files of a repo/directory
+- [x] **SCAN-02**: User can scan `.env` and config files (yaml/json/etc.) for secrets
 - [ ] **SCAN-03**: User can scan a repo's git history (past commits), including secrets later deleted
 - [ ] **SCAN-04**: User can scan only staged changes (`git diff --cached`) for the pre-commit use case
-- [ ] **SCAN-05**: Scanning skips binary and oversized files and the `.git` directory, with a configurable max-file-size cap
+- [x] **SCAN-05**: Scanning skips binary and oversized files and the `.git` directory, with a configurable max-file-size cap
 
 ### Interfaces
 
-- [ ] **IFACE-01**: User can run Mimir as a CLI (`mimir scan ./repo`) and read results in the terminal
-- [ ] **IFACE-02**: Mimir returns CI-friendly exit codes (0 = clean, 1 = findings, 2 = error), with an `--exit-zero` soft mode
+- [x] **IFACE-01**: User can run Mimir as a CLI (`mimir scan ./repo`) and read results in the terminal
+- [x] **IFACE-02**: Mimir returns CI-friendly exit codes (0 = clean, 1 = findings, 2 = error), with an `--exit-zero` soft mode
 - [ ] **IFACE-03**: User can install Mimir as a pre-commit hook that blocks commits containing secrets (staged-only, offline, fast, with an honest bypass)
 
 ### Output
 
-- [ ] **OUT-01**: Mimir prints human-readable findings (file:line, rule matched, redacted snippet) with NO_COLOR-aware coloring
+- [x] **OUT-01**: Mimir prints human-readable findings (file:line, rule matched, redacted snippet) with NO_COLOR-aware coloring
 - [ ] **OUT-02**: Mimir emits machine-readable JSON output with a stable schema including each finding's fingerprint
-- [ ] **OUT-03**: Secret values are redacted by default in every output channel (human, JSON, logs, errors)
+- [x] **OUT-03**: Secret values are redacted by default in every output channel (human, JSON, logs, errors)
 
 ### Suppression
 
@@ -41,7 +41,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **SUP-02**: User can exclude paths/globs via a `.mimirignore` file
 - [ ] **SUP-03**: User can create and use a baseline file so Mimir alerts only on NEW findings vs a snapshot
 - [ ] **SUP-04**: Mimir ships sensible default allowlists for noisy paths (lockfiles, `vendor/`, `node_modules/`, `*.min.js`, etc.)
-- [ ] **SUP-05**: Findings carry a stable fingerprint (repo-relative path + rule ID + content hash) that survives line shifts, file moves, and cross-platform paths
+- [x] **SUP-05**: Findings carry a stable fingerprint (repo-relative path + rule ID + content hash) that survives line shifts, file moves, and cross-platform paths
 
 ### Configuration
 

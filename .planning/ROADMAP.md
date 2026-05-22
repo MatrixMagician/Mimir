@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Walking Skeleton: scaffold, Finding model (redact+fingerprint), aws-access-token engine, file scanner, human output, exit codes
+- [x] 01-01-PLAN.md — Walking Skeleton: scaffold, Finding model (redact+fingerprint), aws-access-token engine, file scanner, human output, exit codes
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -111,7 +111,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Usable End-to-End Scanner | 0/3 | Planned | - |
+| 1. Usable End-to-End Scanner | 1/3 | In progress | - |
 | 2. False-Positive Control (Suppression + Baseline) | 0/TBD | Not started | - |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

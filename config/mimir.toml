@@ -1,0 +1,33 @@
+title = "mimir default config"
+
+# Global allowlists: applied to ALL rules before output.
+# These patterns filter common placeholder values that are never real secrets.
+
+[[allowlists]]
+description = "common placeholder patterns"
+regexes = [
+  '^(?i:true|false|null|undefined|none|empty)$',
+  '^\$\{[A-Za-z_]\w*\}$',
+  '^\$[A-Z_][A-Z0-9_]*$',
+  '^\{\{[^}]+\}\}$',
+]
+
+[[allowlists]]
+description = "noisy paths (suppression)"
+paths = [
+  'go\.(?:mod|sum)$',
+  '(?:^|/)vendor/',
+  '(?:^|/)\.git/',
+]
+
+# ─── Signature Rules ────────────────────────────────────────────────────────
+
+[[rules]]
+id = "aws-access-token"
+description = "AWS access key ID (AKIA/ASIA/ABIA/ACCA prefix)"
+regex = '''\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b'''
+entropy = 3.0
+keywords = ["a3t", "akia", "asia", "abia", "acca"]
+
+  [[rules.allowlists]]
+  regexes = ['.+EXAMPLE$']

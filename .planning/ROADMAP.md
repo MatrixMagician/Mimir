@@ -30,12 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Every output channel (human, JSON, logs, errors) redacts the secret value by default — a scan of Mimir's own output for known fixture secrets finds none
   4. Mimir returns documented exit codes (0 clean / 1 findings / 2 error, with `--exit-zero` soft mode), and a broken config exits 2 (never 0)
   5. User can add custom TOML rules and enable/disable rules; an RE2-incompatible pattern (lookahead/backreference) is rejected at load with a clear error; every finding carries a stable fingerprint (repo-relative path + rule ID + content hash) present in JSON
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md — Walking Skeleton: scaffold, Finding model (redact+fingerprint), aws-access-token engine, file scanner, human output, exit codes
+- [ ] 01-02-PLAN.md — Full detection engine: complete v1 ruleset (15-25 rules), entropy generic detector, connection-string extractor
+- [ ] 01-03-PLAN.md — Config + output completion: LoadConfig() with extend/RE2 validation, JSON output with stable schema, all D-14 flags wired, OUT-03 self-scan test
 
 ### Phase 2: False-Positive Control (Suppression + Baseline)
 **Goal**: A developer can adopt Mimir on a real, dirty repo without drowning in noise — suppressing individual false positives, excluding noisy paths, and baselining existing findings so only NEW secrets alert.
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Usable End-to-End Scanner | 0/TBD | Not started | - |
+| 1. Usable End-to-End Scanner | 0/3 | Planned | - |
 | 2. False-Positive Control (Suppression + Baseline) | 0/TBD | Not started | - |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

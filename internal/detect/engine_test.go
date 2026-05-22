@@ -1,7 +1,9 @@
 package detect
 
 import (
-	"encoding/base64"
+	"bufio"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,15 +20,11 @@ func loadTestConfig(t *testing.T) *config.Config {
 	return cfg
 }
 
-// syntheticAWSKey returns a synthetic 20-char AWS-format key built at runtime
-// from base64-encoded parts, so no literal AKIA token appears in source.
-// Format: <prefix>(4) + <suffix>(16) — all chars from [A-Z2-7].
+// syntheticAWSKey returns a synthetic 20-char AWS-format key built at runtime.
+// Format: AKIA + 16 chars from [A-Z2-7].
 // These are intentionally fake tokens used only for unit testing Mimir's scanner.
 func syntheticAWSKey(suffix string) string {
-	// QUtJQQ== is base64("AKIA") — decoded at runtime, never a literal
-	prefixB64 := "QUtJQQ=="
-	raw, _ := base64.StdEncoding.DecodeString(prefixB64)
-	return string(raw) + suffix
+	return "AKIA" + suffix
 }
 
 // awsKeyLine returns a config-file-style line embedding a synthetic AWS key.
@@ -72,7 +70,7 @@ func TestEngineScanLineAllowlistExample(t *testing.T) {
 	// The aws-access-token rule has an allowlist for values ending in EXAMPLE.
 	// AKIAIOSFODNN7EXAMPLE is 20 chars: AKIA + IOSFODNN7EXAMPLE (16).
 	// It also ends in EXAMPLE, so the per-rule allowlist should suppress it.
-	// Using base64 to avoid literal AKIA in source.
+	// Additionally, the global allowlist should catch it even for generic-api-key.
 	line := awsKeyLine("IOSFODNN7EXAMPLE")
 	findings := eng.ScanLine(line, "test.txt", 1)
 	assert.Nil(t, findings, "expected nil findings: EXAMPLE suffix is allowlisted")
@@ -115,4 +113,160 @@ func TestEngineNoRawSecretInFindings(t *testing.T) {
 		assert.NotContains(t, f.Fingerprint, rawSecret,
 			"raw secret must not appear in Finding.Fingerprint")
 	}
+}
+
+// TestConnStr verifies the connection-string rule detects credentials in URIs.
+func TestConnStr(t *testing.T) {
+	cfg := loadTestConfig(t)
+	eng := NewEngine(cfg)
+
+	tests := []struct {
+		name      string
+		line      string
+		wantRule  string
+		wantCount int
+	}{
+		{
+			name:      "postgres with user and password",
+			line:      "DATABASE_URL = postgres://user:FakeSecretPass123@localhost:5432/mydb",
+			wantRule:  "connection-string",
+			wantCount: 1,
+		},
+		{
+			name:      "redis password-only form (empty user)",
+			line:      "REDIS_URL = redis://:sometoken@redis.host.io:6379",
+			wantRule:  "connection-string",
+			wantCount: 1,
+		},
+		{
+			name:      "mongodb with credentials",
+			line:      "MONGO_URI = mongodb://admin:hunter2@mongo.example.com:27017/db",
+			wantRule:  "connection-string",
+			wantCount: 1,
+		},
+		{
+			name:      "plain https URL without credentials",
+			line:      "https://example.com/page",
+			wantRule:  "",
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := eng.ScanLine(tt.line, "test.txt", 1)
+			require.Len(t, findings, tt.wantCount, "unexpected finding count for: %q", tt.line)
+			if tt.wantCount > 0 {
+				assert.Equal(t, tt.wantRule, findings[0].RuleID)
+				// The raw password must not appear in the Finding.Secret field
+				// (redact-at-boundary invariant)
+				assert.NotContains(t, findings[0].Secret, "FakeSecretPass123",
+					"raw password must not appear in Secret field")
+				assert.NotContains(t, findings[0].Secret, "sometoken",
+					"raw password must not appear in Secret field")
+				assert.NotContains(t, findings[0].Secret, "hunter2",
+					"raw password must not appear in Secret field")
+			}
+		})
+	}
+}
+
+// TestNoEntropy verifies the cfg.NoEntropy flag bypasses entropy thresholds.
+func TestNoEntropy(t *testing.T) {
+	t.Run("NoEntropy=false rejects low-entropy match", func(t *testing.T) {
+		cfg := loadTestConfig(t)
+		cfg.NoEntropy = false
+		eng := NewEngine(cfg)
+
+		// Low entropy: AKIA + 16 identical chars → entropy well below 3.0
+		line := awsKeyLine(strings.Repeat("B", 16))
+		findings := eng.ScanLine(line, "test.txt", 1)
+		assert.Nil(t, findings, "low-entropy match should be rejected when NoEntropy=false")
+	})
+
+	t.Run("NoEntropy=true passes low-entropy match", func(t *testing.T) {
+		cfg := loadTestConfig(t)
+		cfg.NoEntropy = true
+		eng := NewEngine(cfg)
+
+		// Same low-entropy key — with NoEntropy=true it should produce a finding
+		line := awsKeyLine(strings.Repeat("B", 16))
+		findings := eng.ScanLine(line, "test.txt", 1)
+		require.NotEmpty(t, findings, "low-entropy match should pass when NoEntropy=true")
+		assert.Equal(t, "aws-access-token", findings[0].RuleID)
+	})
+}
+
+// fixtureLines parses testdata/fixtures/known-secrets.txt and returns a map
+// of lines indexed by line number (1-based) for rule detection tests.
+func fixtureLines(t *testing.T) []string {
+	t.Helper()
+	// Find the testdata directory relative to the module root
+	path := filepath.Join("..", "..", "testdata", "fixtures", "known-secrets.txt")
+	f, err := os.Open(path)
+	require.NoError(t, err, "failed to open known-secrets.txt")
+	defer f.Close()
+
+	var lines []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+	}
+	require.NoError(t, sc.Err())
+	return lines
+}
+
+// TestAllRules verifies that every rule in the default config produces at least
+// one finding when scanning testdata/fixtures/known-secrets.txt.
+func TestAllRules(t *testing.T) {
+	cfg := loadTestConfig(t)
+	eng := NewEngine(cfg)
+	lines := fixtureLines(t)
+
+	// Build a set of rule IDs we expect to find
+	ruleIDs := make(map[string]bool)
+	for _, rule := range cfg.Rules {
+		ruleIDs[rule.ID] = false // false = not yet found
+	}
+
+	// Scan every line in the fixture file
+	for i, line := range lines {
+		findings := eng.ScanLine(line, "known-secrets.txt", i+1)
+		for _, f := range findings {
+			ruleIDs[f.RuleID] = true
+		}
+	}
+
+	// Every rule should have been triggered by at least one fixture line
+	for ruleID, found := range ruleIDs {
+		assert.True(t, found, "rule %q produced no findings on the fixture file — add a fixture token for it", ruleID)
+	}
+}
+
+// TestCleanNoFP verifies that scanning testdata/clean/no-secrets.go with
+// the full ruleset produces zero findings (false-positive regression test).
+func TestCleanNoFP(t *testing.T) {
+	cfg := loadTestConfig(t)
+	eng := NewEngine(cfg)
+
+	path := filepath.Join("..", "..", "testdata", "clean", "no-secrets.go")
+	f, err := os.Open(path)
+	require.NoError(t, err, "failed to open no-secrets.go")
+	defer f.Close()
+
+	var allFindings []string
+	sc := bufio.NewScanner(f)
+	lineNum := 0
+	for sc.Scan() {
+		lineNum++
+		line := sc.Text()
+		findings := eng.ScanLine(line, "no-secrets.go", lineNum)
+		for _, finding := range findings {
+			allFindings = append(allFindings, "line "+string(rune('0'+lineNum))+" rule "+finding.RuleID)
+		}
+	}
+	require.NoError(t, sc.Err())
+
+	assert.Empty(t, allFindings,
+		"expected zero findings on clean file, got: %v", allFindings)
 }

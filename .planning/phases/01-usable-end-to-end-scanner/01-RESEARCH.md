@@ -1321,22 +1321,25 @@ func loadFromBytes(data []byte) (*Config, error) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **GCP key length (38 vs 39 chars)**
    - What we know: gitleaks allowlist examples are 39 chars; common doc example is 38 chars
    - What's unclear: Is there a GCP key format variation that is 38 chars?
    - Recommendation: Use `[\w-]{34,35}` to accept both lengths, or verify with a real GCP API key. The entropy gate (4.0) provides a second line of defense.
+   - **RESOLVED:** Plan 01-02 Task 1 ships the GCP rule with a width accepting both 38- and 39-char keys; the per-rule entropy gate (4.0) provides defense-in-depth against false positives from the slightly looser length bound.
 
 2. **Connection-string passwords with `@` or `/`**
    - What we know: RFC 3986 requires `@` to be percent-encoded in userinfo; `%40` should work in the current regex
    - What's unclear: How many real leaked connection strings use unencoded `@` in passwords?
    - Recommendation: Add a test case; document the limitation; acceptable for v1.
+   - **RESOLVED:** Accepted as a known v1 limitation (unencoded `@`/`/` inside the password span is out of scope), documented in SKELETON.md "Out of Scope"; Plan 01-02 Task 2 covers the percent-encoded (`%40`) form with a test case.
 
 3. **`generic-api-key` TOML escaping**
    - What we know: The regex contains backticks and double quotes which need careful escaping in TOML
    - What's unclear: Whether TOML literal strings (`'''...'''`) handle the mixed-quote regex cleanly
    - Recommendation: Use TOML multiline literal strings (`'''`) for complex regexes; test the parse round-trip in a unit test before shipping.
+   - **RESOLVED:** Plan 01-02 Task 1 mandates TOML multiline literal strings (`'''...'''`) for all complex regex patterns, with a `TestRulesetParse` round-trip test that fails if any embedded rule regex does not parse.
 
 ---
 

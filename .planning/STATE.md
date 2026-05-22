@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 01-03-PLAN.md (Config + Output Completion)
-last_updated: "2026-05-22T19:26:51.068Z"
+status: ready_to_plan
+stopped_at: Phase 01 complete (3/3) — ready to discuss Phase 2
+last_updated: 2026-05-22T19:40:28.615Z
 last_activity: 2026-05-22
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-22)
 
 **Core value:** Accurately catch real leaked secrets — with few enough false positives that developers trust it and keep it in their workflow.
-**Current focus:** Phase 1 — Usable End-to-End Scanner
+**Current focus:** Phase 2 — false positive control (suppression + baseline)
 
 ## Current Position
 
-Phase: 1 of 4 (Usable End-to-End Scanner)
-Plan: 3 of 3 in current phase (01-01, 01-02 complete)
-Status: Phase complete — ready for verification
+Phase: 2 of 4 (false positive control (suppression + baseline))
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-05-22
 
 Progress: [██████████] 100%
@@ -36,7 +36,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 1
+- Total plans completed: 4
 - Average duration: 45 min
 - Total execution time: 0.75 hours
 
@@ -45,6 +45,7 @@ Progress: [██████████] 100%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-usable-end-to-end-scanner | 1/3 | 45 min | 45 min |
+| 01 | 3 | - | - |
 
 **Recent Trend:**
 

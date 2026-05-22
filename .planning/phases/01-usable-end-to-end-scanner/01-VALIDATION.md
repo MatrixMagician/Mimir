@@ -41,11 +41,11 @@ updated: 2026-05-22
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 01-01-T1 | 01-01 | 1 | SUP-05, OUT-03 | T-01-02 | RedactSecret() enforces prefix+last4 or [REDACTED]; no raw value in any Finding field | unit | `go test ./internal/finding/ -run TestRedact -v` | ❌ Wave 0 | ⬜ pending |
 | 01-01-T2 | 01-01 | 1 | DET-01, DET-04, SCAN-01, SCAN-05 | T-01-01, T-01-02 | Aho-Corasick gate + RE2 match + binary skip + .git skip; findings redacted at boundary | unit+integration | `go test ./internal/detect/ ./internal/scanner/ -v` | ❌ Wave 0 | ⬜ pending |
-| 01-01-T3 | 01-01 | 1 | IFACE-01, IFACE-02, OUT-01, OUT-03 | T-01-02, T-01-03 | Human output: compact format; raw secret not in stdout; exit codes 0/1/2 correct | smoke | `go build -o /tmp/mimir-test ./cmd/mimir && /tmp/mimir-test scan testdata/fixtures/ ; echo $?` | ❌ Wave 0 | ⬜ pending |
+| 01-01-T3 | 01-01 | 1 | IFACE-01, IFACE-02, OUT-01, OUT-03 | T-01-02, T-01-03 | Human output: compact format; raw secret not in stdout; exit codes 0/1/2 correct; --quiet suppresses summary, exit code unchanged; findings still emitted | smoke+unit | `go build -o /tmp/mimir-test ./cmd/mimir && /tmp/mimir-test scan testdata/fixtures/ ; echo $?` and `go test ./cmd/... -v` | ❌ Wave 0 | ⬜ pending |
 | 01-02-T1 | 01-02 | 2 | DET-01, DET-04 | T-02-04 | Full TOML ruleset parses cleanly; all rules RE2-validated; >= 15 rules loaded | unit | `go test ./internal/config/ -run TestRulesetParse -v` | ❌ Wave 0 | ⬜ pending |
-| 01-02-T2 | 01-02 | 2 | DET-01, DET-02, DET-03, DET-04 | T-02-01, T-02-02 | All rules detect their fixture; connection-string extracts password group; --no-entropy bypass; 0 FP on clean files | unit | `go test ./internal/detect/ -run 'TestAllRules\|TestConnStr\|TestNoEntropy\|TestCleanNoFP' -v` | ❌ Wave 0 | ⬜ pending |
-| 01-03-T1 | 01-03 | 2 | DET-05, CFG-01, CFG-02 | T-03-01, T-03-02 | LoadConfig precedence; extend model; RE2 rejection names offending rule; disabled_rules filter | unit | `go test ./internal/config/ -run 'TestLoadConfig\|TestExtend\|TestREValidation\|TestDiscovery' -v` | ❌ Wave 0 | ⬜ pending |
-| 01-03-T2 | 01-03 | 2 | OUT-02, OUT-03, IFACE-02 | T-03-02, T-01-02 | JSON schema has fingerprint; no raw secrets in JSON; --no-color removes ANSI; all flags wired | unit+integration | `go test ./internal/output/ -v && go build -o /tmp/mimir-test ./cmd/mimir && /tmp/mimir-test scan --format json testdata/fixtures/ > /tmp/out.json ; echo $?` | ❌ Wave 0 | ⬜ pending |
+| 01-02-T2 | 01-02 | 2 | DET-01, DET-02, DET-03, DET-04 | T-02-01, T-02-02 | All rules detect their fixture; connection-string extracts password group (secret_group=3 in TOML); --no-entropy bypass; 0 FP on clean files | unit | `go test ./internal/detect/ -run 'TestAllRules\|TestConnStr\|TestNoEntropy\|TestCleanNoFP' -v` | ❌ Wave 0 | ⬜ pending |
+| 01-03-T1 | 01-03 | 2 | DET-05, CFG-01, CFG-02 | T-03-01, T-03-02 | LoadConfig precedence; extend model; RE2 rejection names offending rule; disabled_rules filter; Config.NoEntropy preserved | unit | `go test ./internal/config/ -run 'TestLoadConfig\|TestExtend\|TestREValidation\|TestDiscovery' -v` | ❌ Wave 0 | ⬜ pending |
+| 01-03-T2 | 01-03 | 2 | OUT-02, OUT-03, IFACE-02 | T-03-02, T-01-02 | JSON schema has fingerprint; no raw secrets in JSON; --no-color removes ANSI; --quiet suppresses summary line; all flags wired | unit+integration | `go test ./internal/output/ -v && go build -o /tmp/mimir-test ./cmd/mimir && /tmp/mimir-test scan --format json testdata/fixtures/ > /tmp/out.json ; echo $?` | ❌ Wave 0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -63,7 +63,7 @@ All of the following must be created by Plan 01-01 Task 1 before any subsequent 
 - [ ] `internal/scanner/scanner_test.go` — binary skip, .git skip, fixture scan tests
 - [ ] `internal/output/output_test.go` — human format + JSON schema + self-scan tests
 - [ ] `internal/config/config_test.go` — ruleset parse, extend model, RE2 validation tests
-- [ ] `cmd/mimir/scan_test.go` or integrated in `cmd/` package — exit code contract tests
+- [ ] `cmd/mimir/scan_test.go` — exit code contract tests (0/1/2/--exit-zero) and --quiet suppression test; makes `go test ./cmd/...` provide IFACE-01/IFACE-02 coverage
 
 Self-scan validation harness (OUT-03):
 - Run scanner on `testdata/fixtures/known-secrets.txt` → capture JSON output
@@ -86,7 +86,7 @@ Self-scan validation harness (OUT-03):
 
 - [x] All tasks have `<automated>` verify commands
 - [x] Sampling continuity: no 3 consecutive tasks without automated verify
-- [x] Wave 0 covers all MISSING references in test commands
+- [x] Wave 0 covers all MISSING references in test commands (including cmd/mimir/scan_test.go for `go test ./cmd/...`)
 - [x] No watch-mode flags in any verify command
 - [x] Feedback latency < 30s (all commands use `go test` with bounded timeouts)
 - [x] `nyquist_compliant: true` set in frontmatter

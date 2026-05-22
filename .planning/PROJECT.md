@@ -14,29 +14,28 @@ Accurately catch real leaked secrets — with few enough false positives that de
 
 <!-- Shipped and confirmed valuable. -->
 
-(None yet — ship to validate)
+- [x] Scan working-tree files in a repo/directory for secrets — Validated in Phase 1
+- [x] Scan `.env` and config files (yaml/json/etc.) specifically — Validated in Phase 1
+- [x] Detect secrets via known-pattern regex signatures (AWS, GitHub, Stripe, private keys, etc.) — Validated in Phase 1
+- [x] Detect generic/unknown secrets via entropy analysis — Validated in Phase 1
+- [x] Detect database/connection strings (postgres://, mongodb://, etc.) — Validated in Phase 1
+- [x] Run as a CLI (`mimir scan ./repo`) with readable, redacted output — Validated in Phase 1
+- [x] Run as a CI/CD gate — non-zero exit code when findings exist — Validated in Phase 1
+- [x] Emit human-readable output (file:line, rule, redacted snippet) — Validated in Phase 1
+- [x] Emit JSON output for automation/tooling — Validated in Phase 1
+- [x] Support custom detection rules via a config file (built-in ruleset + user regex) — Validated in Phase 1
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] Scan working-tree files in a repo/directory for secrets
 - [ ] Scan git history (past commits) for secrets, including deleted ones
-- [ ] Scan `.env` and config files (yaml/json/etc.) specifically
 - [ ] Scan only staged changes (for the pre-commit use case)
-- [ ] Detect secrets via known-pattern regex signatures (AWS, GitHub, Stripe, private keys, etc.)
-- [ ] Detect generic/unknown secrets via entropy analysis
-- [ ] Detect database/connection strings (postgres://, mongodb://, etc.)
 - [ ] Live-verify a few key providers in v1 (AWS, GitHub) — confirm a found credential is active
-- [ ] Run as a CLI (`mimir scan ./repo`) with readable, redacted output
-- [ ] Run as a CI/CD gate — non-zero exit code when findings exist
 - [ ] Run as a pre-commit hook — block commits containing secrets
-- [ ] Emit human-readable output (file:line, rule, redacted snippet)
-- [ ] Emit JSON output for automation/tooling
 - [ ] Suppress false positives via inline ignore comments (`// mimir:ignore`)
 - [ ] Suppress false positives via an ignore file (`.mimirignore` paths/globs)
 - [ ] Suppress via a baseline file — only alert on NEW findings vs a snapshot
-- [ ] Support custom detection rules via a config file (built-in ruleset + user regex)
 
 ### Out of Scope
 
@@ -96,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 after initialization*
+*Last updated: 2026-05-22 after Phase 1 completion — Usable End-to-End Scanner shipped (working-tree + config-file scanning, layered detection, redacted human/JSON output, CI exit codes, custom TOML rules)*

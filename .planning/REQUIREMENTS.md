@@ -13,7 +13,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DET-02**: Mimir detects generic/unknown secrets via Shannon entropy analysis, gated by keyword/context to limit noise
 - [x] **DET-03**: Mimir detects database/connection strings (e.g. `postgres://`, `mongodb://`, `redis://`, JDBC) and isolates the embedded credential
 - [x] **DET-04**: Mimir runs a keyword pre-filter so a rule's regex only executes when its keyword is present (performance + precision)
-- [ ] **DET-05**: Custom rules are RE2-validated at config load; patterns using unsupported syntax (lookahead/backreferences) are rejected with a clear error
+- [x] **DET-05**: Custom rules are RE2-validated at config load; patterns using unsupported syntax (lookahead/backreferences) are rejected with a clear error
 
 ### Scanning
 
@@ -32,7 +32,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Output
 
 - [x] **OUT-01**: Mimir prints human-readable findings (file:line, rule matched, redacted snippet) with NO_COLOR-aware coloring
-- [ ] **OUT-02**: Mimir emits machine-readable JSON output with a stable schema including each finding's fingerprint
+- [x] **OUT-02**: Mimir emits machine-readable JSON output with a stable schema including each finding's fingerprint
 - [x] **OUT-03**: Secret values are redacted by default in every output channel (human, JSON, logs, errors)
 
 ### Suppression
@@ -45,8 +45,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Configuration
 
-- [ ] **CFG-01**: User can add custom detection rules via a config file (TOML), extending the built-in ruleset
-- [ ] **CFG-02**: Mimir discovers config with documented precedence (flags > project config > defaults) and can enable/disable rules
+- [x] **CFG-01**: User can add custom detection rules via a config file (TOML), extending the built-in ruleset
+- [x] **CFG-02**: Mimir discovers config with documented precedence (flags > project config > defaults) and can enable/disable rules
 
 ### Verification
 
@@ -100,18 +100,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DET-02 | Phase 1 | Complete |
 | DET-03 | Phase 1 | Complete |
 | DET-04 | Phase 1 | Complete |
-| DET-05 | Phase 1 | Pending |
+| DET-05 | Phase 1 | Complete |
 | SCAN-01 | Phase 1 | Pending |
 | SCAN-02 | Phase 1 | Pending |
 | SCAN-05 | Phase 1 | Pending |
 | IFACE-01 | Phase 1 | Pending |
-| IFACE-02 | Phase 1 | Pending |
+| IFACE-02 | Phase 1 | Complete |
 | OUT-01 | Phase 1 | Pending |
-| OUT-02 | Phase 1 | Pending |
-| OUT-03 | Phase 1 | Pending |
-| SUP-05 | Phase 1 | Pending |
-| CFG-01 | Phase 1 | Pending |
-| CFG-02 | Phase 1 | Pending |
+| OUT-02 | Phase 1 | Complete |
+| OUT-03 | Phase 1 | Complete |
+| SUP-05 | Phase 1 | Complete |
+| CFG-01 | Phase 1 | Complete |
+| CFG-02 | Phase 1 | Complete |
 | SUP-01 | Phase 2 | Pending |
 | SUP-02 | Phase 2 | Pending |
 | SUP-03 | Phase 2 | Pending |

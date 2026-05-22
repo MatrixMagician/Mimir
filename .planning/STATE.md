@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-01-PLAN.md (Walking Skeleton)
-last_updated: "2026-05-22T19:12:16.081Z"
+status: verifying
+stopped_at: Completed 01-03-PLAN.md (Config + Output Completion)
+last_updated: "2026-05-22T19:26:51.068Z"
 last_activity: 2026-05-22
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-05-22)
 
 Phase: 1 of 4 (Usable End-to-End Scanner)
 Plan: 3 of 3 in current phase (01-01, 01-02 complete)
-Status: Executing
+Status: Phase complete — ready for verification
 Last activity: 2026-05-22
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [███████░░░] 67%
 
 *Updated after each plan completion*
 | Phase 01-usable-end-to-end-scanner P02 | 45 | 2 tasks | 4 files |
+| Phase 01-usable-end-to-end-scanner P03 | 9 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Recent decisions affecting current work:
 - [01-02]: Global EXAMPLE allowlist (.+EXAMPLE$) placed in global [[allowlists]] — suppresses documentation placeholders across ALL rules, not just aws-access-token.
 - [01-02]: GitHub token fixture length must be prefix(4) + exactly {N} alphanum chars matching the regex quantifier (e.g. ghp_ + 36 = 40 total).
 - [01-02]: connection-string rule SecretGroup=3 in TOML is single canonical regex source; engine SecretGroup extraction handles it uniformly — no separate connstr.go.
+- [Phase ?]: OUT-03 test checks raw known-secret string absence in JSON, not scanner-zero-findings — redacted URIs still trigger patterns but contain no real secret value
+- [Phase ?]: Config rawConfig struct split into rawConfig/rawRule/rawAllowlist/extendSection unexported types for clean TOML decode separation
+- [Phase ?]: mergeConfigs appends overlay rules after base rules, then applies disabled_rules filter to both
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-22T19:12:16.073Z
-Stopped at: Completed 01-02-PLAN.md (Full v1 Detection Engine)
-Resume file: .planning/phases/01-usable-end-to-end-scanner/01-03-PLAN.md
+Last session: 2026-05-22T19:26:51.060Z
+Stopped at: Completed 01-03-PLAN.md (Config + Output Completion)
+Resume file: None

@@ -13,7 +13,7 @@ Mimir's journey is dependency-driven and front-loads trust. Phase 1 ships a comp
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Usable End-to-End Scanner** - Redacting data model, fingerprint scheme, layered detection engine, filesystem/config source, concurrent pipeline, human + JSON output, `mimir scan` CLI, CI exit codes
+- [x] **Phase 1: Usable End-to-End Scanner** - Redacting data model, fingerprint scheme, layered detection engine, filesystem/config source, concurrent pipeline, human + JSON output, `mimir scan` CLI, CI exit codes (completed 2026-05-22)
 - [ ] **Phase 2: False-Positive Control (Suppression + Baseline)** - Inline ignore, `.mimirignore`, default allowlists, and a stable-fingerprint baseline so Mimir alerts only on NEW findings
 - [ ] **Phase 3: Full Source Coverage (Git History + Staged + Pre-commit)** - Memory-bounded git-history scan (incl. deleted secrets), staged-changes scan, and the pre-commit hook installer
 - [ ] **Phase 4: Opt-in Live Verification (AWS + GitHub)** - Read-only, cached, rate-limited liveness checks behind `--verify` with three-state classification
@@ -44,7 +44,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 01-02-PLAN.md — Full detection engine: complete v1 ruleset (15-25 rules), entropy generic detector, connection-string extractor
-- [ ] 01-03-PLAN.md — Config + output completion: LoadConfig() with extend/RE2 validation, JSON output with stable schema, all D-14 flags wired, OUT-03 self-scan test
+- [x] 01-03-PLAN.md — Config + output completion: LoadConfig() with extend/RE2 validation, JSON output with stable schema, all D-14 flags wired, OUT-03 self-scan test
 
 ### Phase 2: False-Positive Control (Suppression + Baseline)
 
@@ -111,7 +111,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Usable End-to-End Scanner | 2/3 | In Progress|  |
+| 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
 | 2. False-Positive Control (Suppression + Baseline) | 0/TBD | Not started | - |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

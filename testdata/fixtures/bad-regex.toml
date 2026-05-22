@@ -1,0 +1,7 @@
+title = "bad regex test"
+
+[[rules]]
+id = "lookahead-rule"
+description = "Rule with RE2-incompatible lookahead"
+regex = '(?=\w+)secret'
+keywords = ["secret"]

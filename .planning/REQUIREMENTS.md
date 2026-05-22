@@ -96,13 +96,38 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (to be populated by roadmapper) | — | Pending |
+| DET-01 | Phase 1 | Pending |
+| DET-02 | Phase 1 | Pending |
+| DET-03 | Phase 1 | Pending |
+| DET-04 | Phase 1 | Pending |
+| DET-05 | Phase 1 | Pending |
+| SCAN-01 | Phase 1 | Pending |
+| SCAN-02 | Phase 1 | Pending |
+| SCAN-05 | Phase 1 | Pending |
+| IFACE-01 | Phase 1 | Pending |
+| IFACE-02 | Phase 1 | Pending |
+| OUT-01 | Phase 1 | Pending |
+| OUT-02 | Phase 1 | Pending |
+| OUT-03 | Phase 1 | Pending |
+| SUP-05 | Phase 1 | Pending |
+| CFG-01 | Phase 1 | Pending |
+| CFG-02 | Phase 1 | Pending |
+| SUP-01 | Phase 2 | Pending |
+| SUP-02 | Phase 2 | Pending |
+| SUP-03 | Phase 2 | Pending |
+| SUP-04 | Phase 2 | Pending |
+| SCAN-03 | Phase 3 | Pending |
+| SCAN-04 | Phase 3 | Pending |
+| IFACE-03 | Phase 3 | Pending |
+| VERIFY-01 | Phase 4 | Pending |
+| VERIFY-02 | Phase 4 | Pending |
+| VERIFY-03 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 25 ⚠️
+- Mapped to phases: 25 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-22*
-*Last updated: 2026-05-22 after initial definition*
+*Last updated: 2026-05-22 after roadmap creation (traceability populated)*

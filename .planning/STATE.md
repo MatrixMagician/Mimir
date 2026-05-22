@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-05-22T18:36:46.772Z"
-last_activity: 2026-05-22 -- Phase 1 planning complete
+stopped_at: Completed 01-01-PLAN.md (Walking Skeleton)
+last_updated: "2026-05-22T19:12:16.081Z"
+last_activity: 2026-05-22
 progress:
   total_phases: 4
   completed_phases: 0
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-22)
 ## Current Position
 
 Phase: 1 of 4 (Usable End-to-End Scanner)
-Plan: 1 of 3 in current phase (01-01 complete)
+Plan: 3 of 3 in current phase (01-01, 01-02 complete)
 Status: Executing
-Last activity: 2026-05-22 -- 01-01 Walking Skeleton complete
+Last activity: 2026-05-22
 
-Progress: [█░░░░░░░░░] 10%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [█░░░░░░░░░] 10%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01-usable-end-to-end-scanner P02 | 45 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Recent decisions affecting current work:
 - [01-01]: Binary entrypoint at root main.go (package main); cmd/ is package cmd (library) — go build . for the executable.
 - [01-01]: cmd tests use TestMain + os/exec black-box approach; os.Exit() in runScan makes in-process testing unreliable.
 - [01-01]: go:embed in config/ package (colocated with mimir.toml) to satisfy embed directive package-colocation constraint.
+- [01-02]: Global EXAMPLE allowlist (.+EXAMPLE$) placed in global [[allowlists]] — suppresses documentation placeholders across ALL rules, not just aws-access-token.
+- [01-02]: GitHub token fixture length must be prefix(4) + exactly {N} alphanum chars matching the regex quantifier (e.g. ghp_ + 36 = 40 total).
+- [01-02]: connection-string rule SecretGroup=3 in TOML is single canonical regex source; engine SecretGroup extraction handles it uniformly — no separate connstr.go.
 
 ### Pending Todos
 
@@ -89,6 +93,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-22
-Stopped at: Completed 01-01-PLAN.md (Walking Skeleton)
-Resume file: .planning/phases/01-usable-end-to-end-scanner/01-02-PLAN.md
+Last session: 2026-05-22T19:12:16.073Z
+Stopped at: Completed 01-02-PLAN.md (Full v1 Detection Engine)
+Resume file: .planning/phases/01-usable-end-to-end-scanner/01-03-PLAN.md

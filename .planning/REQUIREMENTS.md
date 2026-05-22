@@ -10,8 +10,8 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Detection Engine
 
 - [x] **DET-01**: Mimir detects secrets via known-pattern regex signatures (AWS keys, GitHub tokens, Stripe keys, private keys, etc.) from a curated built-in ruleset
-- [ ] **DET-02**: Mimir detects generic/unknown secrets via Shannon entropy analysis, gated by keyword/context to limit noise
-- [ ] **DET-03**: Mimir detects database/connection strings (e.g. `postgres://`, `mongodb://`, `redis://`, JDBC) and isolates the embedded credential
+- [x] **DET-02**: Mimir detects generic/unknown secrets via Shannon entropy analysis, gated by keyword/context to limit noise
+- [x] **DET-03**: Mimir detects database/connection strings (e.g. `postgres://`, `mongodb://`, `redis://`, JDBC) and isolates the embedded credential
 - [x] **DET-04**: Mimir runs a keyword pre-filter so a rule's regex only executes when its keyword is present (performance + precision)
 - [ ] **DET-05**: Custom rules are RE2-validated at config load; patterns using unsupported syntax (lookahead/backreferences) are rejected with a clear error
 
@@ -96,10 +96,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-01 | Phase 1 | Pending |
-| DET-02 | Phase 1 | Pending |
-| DET-03 | Phase 1 | Pending |
-| DET-04 | Phase 1 | Pending |
+| DET-01 | Phase 1 | Complete |
+| DET-02 | Phase 1 | Complete |
+| DET-03 | Phase 1 | Complete |
+| DET-04 | Phase 1 | Complete |
 | DET-05 | Phase 1 | Pending |
 | SCAN-01 | Phase 1 | Pending |
 | SCAN-02 | Phase 1 | Pending |

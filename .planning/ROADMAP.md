@@ -43,7 +43,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Full detection engine: complete v1 ruleset (15-25 rules), entropy generic detector, connection-string extractor
+- [x] 01-02-PLAN.md — Full detection engine: complete v1 ruleset (15-25 rules), entropy generic detector, connection-string extractor
 - [ ] 01-03-PLAN.md — Config + output completion: LoadConfig() with extend/RE2 validation, JSON output with stable schema, all D-14 flags wired, OUT-03 self-scan test
 
 ### Phase 2: False-Positive Control (Suppression + Baseline)
@@ -111,7 +111,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Usable End-to-End Scanner | 1/3 | In progress | - |
+| 1. Usable End-to-End Scanner | 2/3 | In Progress|  |
 | 2. False-Positive Control (Suppression + Baseline) | 0/TBD | Not started | - |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

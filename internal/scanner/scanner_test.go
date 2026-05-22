@@ -30,6 +30,15 @@ func repoRoot(t *testing.T) string {
 	return dir
 }
 
+func TestScannerNonexistentPathIsFatal(t *testing.T) {
+	s := newTestScanner(t)
+
+	// A path the user named that does not exist must be a fatal error (→ exit 2),
+	// never a silent "clean" scan (→ exit 0) that would hide a typo'd path in CI.
+	_, _, err := s.Scan(context.Background(), []string{filepath.Join(t.TempDir(), "does-not-exist")})
+	require.Error(t, err)
+}
+
 func TestScannerBinarySkip(t *testing.T) {
 	s := newTestScanner(t)
 

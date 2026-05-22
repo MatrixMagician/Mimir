@@ -58,6 +58,14 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 		root := root // capture loop variable
 		walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
+				// A failure on the root path itself (e.g. it does not exist) is
+				// fatal: the user named a target that cannot be scanned, and
+				// silently reporting "clean" (exit 0) would hide a typo'd path
+				// in CI — the opposite of trustworthy. Deeper per-entry errors
+				// (permissions, races during the walk) remain non-fatal.
+				if path == root {
+					return err
+				}
 				// Permission errors etc. — log and skip
 				if s.cfg.Verbose {
 					fmt.Fprintf(os.Stderr, "mimir: skipping %s: %v\n", path, err)

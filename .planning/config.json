@@ -49,7 +49,6 @@
   "resolve_model_ids": "omit",
   "mode": "yolo",
   "granularity": "coarse",
-  "quick_branch_template": null,
   "intel": {
     "enabled": true
   },

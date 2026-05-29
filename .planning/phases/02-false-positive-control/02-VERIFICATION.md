@@ -50,5 +50,13 @@ per-file goroutine), reserving the Phase 4 live-verification slot — as documen
 - `phase complete 2` emitted a traceability warning for OUT2-*/SUP2-*/VERIFY2-* IDs;
   those are future (v2) requirements, not Phase 2 scope — expected noise.
 - The mid-execution `phase complete` was run while the cmd/mimir test build was
-  transiently red (missing testify imports); fixed in commits c9bbc86 + the import
-  commit, after which the full -race suite is green. Verification reflects the final tree.
+  transiently red (missing testify imports); fixed in commits c9bbc86 + 632e066,
+  after which the full -race suite is green. Verification reflects the final tree.
+- Two path-toggle CLI tests (TestMimirignoreNegation, TestDefaultsToggleOff) were
+  initially placed under `vendor/`, which is ALSO suppressed by the engine-level
+  content-allowlist (`config/mimir.toml [[allowlists]] paths`) independent of the
+  Phase 2 path-prune toggle — masking the real (working) behavior. Fixed (commit
+  8266bb9) by moving those fixtures to `build/` (excluded only by the `**/build/**`
+  default glob). A pathmatch glob-validation fix (edd8763) and a backslash-norm fix
+  (c9bbc86) also landed. Final `go build`/`go vet`/`go test ./... -race` all green
+  (7/7 packages); this record reflects the verified final tree.

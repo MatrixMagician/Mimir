@@ -59,12 +59,24 @@ Plans:
   3. User can generate a baseline and re-scan so only findings NEW relative to the snapshot are reported; the committed baseline contains no raw secret values
   4. A baselined finding stays suppressed after a blank-line insertion above it, a file move, and a Windows↔Linux path difference (fingerprint stability holds)
 
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Foundation: add doublestar/v4 dep, internal/suppress package shell, Finding (D-12) + Stats (D-11/D-13) fields, dirty fixture repo + criterion-4 variants
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 02-02-PLAN.md — Inline-ignore slice (SUP-01): mimir:ignore[:rule-id] parser, scanFile wiring, --verbose paste-ready hint, exit-code-safe
+
+**Wave 3** *(blocked on Wave 2 — shares scanner.go/scan.go)*
+
+- [ ] 02-03-PLAN.md — Path-prune slice (SUP-02/SUP-04): PathMatcher (doublestar) + default globs + master toggle, walk-prune, excluded-count
+
+**Wave 4** *(blocked on Wave 3 — shares scan.go/output)*
+
+- [ ] 02-04-PLAN.md — Baseline slice (SUP-03) + transparency (D-11/D-12/D-13) + exit-code fix: OR-match filter, --baseline/--baseline-out/--show-suppressed, criterion-4 stability
 
 ### Phase 3: Full Source Coverage (Git History + Staged + Pre-commit)
 
@@ -112,6 +124,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
-| 2. False-Positive Control (Suppression + Baseline) | 0/TBD | Not started | - |
+| 2. False-Positive Control (Suppression + Baseline) | 0/4 | Not started | - |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

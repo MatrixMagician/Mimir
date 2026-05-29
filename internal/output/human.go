@@ -35,8 +35,10 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 	// tagged --show-suppressed row renderer is owned by Plan 04.
 	activeCount := 0
 	activeFiles := make(map[string]struct{})
+	var suppressed []finding.Finding
 	for _, f := range findings {
 		if f.Suppressed {
+			suppressed = append(suppressed, f)
 			continue
 		}
 		activeCount++
@@ -64,6 +66,21 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		}
 	}
 
+	// --show-suppressed: render withheld findings in a reason-tagged section.
+	// Suppressed findings only reach here when --show-suppressed kept them;
+	// otherwise they were dropped upstream (scanner / baseline filter).
+	if len(suppressed) > 0 {
+		if color.NoColor {
+			fmt.Fprintf(w, "\nSuppressed (informational):\n")
+		} else {
+			color.New(color.FgHiBlack).Fprintf(w, "\nSuppressed (informational):\n")
+		}
+		for _, f := range suppressed {
+			fmt.Fprintf(w, "  ○ %s:%d:%d  [%s] (%s)  %s\n",
+				f.File, f.Line, f.Column, f.RuleID, f.SuppressionReason, f.Secret)
+		}
+	}
+
 	// Summary line (D-02): skip when --quiet is set.
 	if quiet {
 		return
@@ -77,9 +94,11 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		fmt.Fprintf(w, "%s\n", okStyle.Sprintf("✓ no findings · scanned %d files · %s",
 			stats.FilesScanned, durationStr))
 	}
-	// D-11 transparency: always report the inline-ignored count when non-zero.
-	if n := stats.Suppressed[suppressInlineReason]; n > 0 {
-		fmt.Fprintf(w, "  (%d inline-ignored)\n", n)
+	// D-11 transparency: always report suppression counts by reason when non-zero.
+	for _, reason := range []string{"inline-ignore", "allowlist", "baseline"} {
+		if n := stats.Suppressed[reason]; n > 0 {
+			fmt.Fprintf(w, "  (%d %s)\n", n, reason)
+		}
 	}
 }
 

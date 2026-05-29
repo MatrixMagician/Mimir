@@ -203,3 +203,80 @@ func TestMalformedMimirignoreFailsLoud(t *testing.T) {
 	_, _, code := runMimir(t, "scan", "--no-color", dir)
 	assert.Equal(t, 2, code, "a malformed .mimirignore glob must exit 2")
 }
+
+// TestBaselineNewOnly verifies --baseline-out then --baseline reports 0 NEW
+// findings on an unchanged repo (SUP-03).
+func TestBaselineNewOnly(t *testing.T) {
+	bl := filepath.Join(t.TempDir(), "bl.json")
+	runMimir(t, "scan", "--no-color", "--baseline-out", bl, "testdata/dirty")
+	stdout, _, code := runMimir(t, "scan", "--no-color", "--baseline", bl, "testdata/dirty")
+	assert.Equal(t, 0, code, "re-scan against its own baseline must report 0 NEW findings")
+	assert.Contains(t, stdout, "no findings")
+}
+
+// TestBaselineFileMove verifies the OR-match keeps a finding suppressed after a
+// file move (criterion 4, end-to-end).
+func TestBaselineFileMove(t *testing.T) {
+	bl := filepath.Join(t.TempDir(), "bl.json")
+	runMimir(t, "scan", "--no-color", "--baseline-out", bl, "testdata/dirty")
+	_, _, code := runMimir(t, "scan", "--no-color", "--baseline", bl, "testdata/dirty-moved")
+	assert.Equal(t, 0, code, "moved-file secret must stay suppressed via content-key")
+}
+
+// TestBaselineBlankLineShift verifies a blank-line insert above a secret does
+// not change suppression (criterion 4, end-to-end).
+func TestBaselineBlankLineShift(t *testing.T) {
+	bl := filepath.Join(t.TempDir(), "bl.json")
+	runMimir(t, "scan", "--no-color", "--baseline-out", bl, "testdata/dirty")
+	_, _, code := runMimir(t, "scan", "--no-color", "--baseline", bl, "testdata/dirty-shifted")
+	assert.Equal(t, 0, code, "blank-line shift must not change suppression")
+}
+
+// TestSuppressedExitCode verifies an all-baselined scan exits 0 and that
+// --show-suppressed does not flip the exit code (IFACE-02, Pitfall 5).
+func TestSuppressedExitCode(t *testing.T) {
+	bl := filepath.Join(t.TempDir(), "bl.json")
+	runMimir(t, "scan", "--no-color", "--baseline-out", bl, "testdata/dirty")
+	_, _, c1 := runMimir(t, "scan", "--no-color", "--baseline", bl, "testdata/dirty")
+	assert.Equal(t, 0, c1, "all-baselined scan exits 0")
+	_, _, c2 := runMimir(t, "scan", "--no-color", "--show-suppressed", "--baseline", bl, "testdata/dirty")
+	assert.Equal(t, 0, c2, "--show-suppressed must not flip the exit code")
+}
+
+// TestBaselineOutNoRawSecret verifies the written baseline contains no raw
+// secret (criterion 3, end-to-end).
+func TestBaselineOutNoRawSecret(t *testing.T) {
+	bl := filepath.Join(t.TempDir(), "bl.json")
+	runMimir(t, "scan", "--no-color", "--baseline-out", bl, "testdata/dirty")
+	data, err := os.ReadFile(bl)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "AKIAFAKEKEYABCDE2345", "baseline must never store a raw secret")
+}
+
+// TestShowSuppressed verifies --show-suppressed re-includes baselined findings
+// tagged "baseline" in JSON, while the default JSON omits the D-12 fields (OUT-02).
+func TestShowSuppressed(t *testing.T) {
+	bl := filepath.Join(t.TempDir(), "bl.json")
+	runMimir(t, "scan", "--no-color", "--baseline-out", bl, "testdata/dirty")
+
+	stdout, _, _ := runMimir(t, "scan", "--no-color", "--show-suppressed", "--baseline", bl, "--format", "json", "testdata/dirty")
+	var res struct {
+		Findings []struct {
+			Suppressed        bool   `json:"suppressed"`
+			SuppressionReason string `json:"suppression_reason"`
+		} `json:"findings"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &res))
+	foundBaseline := false
+	for _, f := range res.Findings {
+		if f.Suppressed && f.SuppressionReason == "baseline" {
+			foundBaseline = true
+		}
+	}
+	assert.True(t, foundBaseline, "--show-suppressed must re-include baselined findings tagged baseline")
+
+	// Default JSON on a repo with active, non-suppressed findings must omit the
+	// D-12 fields entirely (OUT-02 byte-identical schema).
+	def, _, _ := runMimir(t, "scan", "--no-color", "--format", "json", "testdata/fixtures/")
+	assert.NotContains(t, def, "suppression_reason", "default JSON must omit suppression_reason")
+}

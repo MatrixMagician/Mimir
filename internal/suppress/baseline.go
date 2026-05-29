@@ -31,14 +31,18 @@ type Baseline struct {
 }
 
 // contentKey returns the path-independent key (rule-id:hash16): the LAST TWO
-// colon-segments of a fingerprint (path:rule-id:hash16). Taking the last two
-// segments tolerates a path that itself contains colons.
+// colon-segments of a fingerprint (path:rule-id:hash16), parsed via two
+// strings.LastIndex calls so a path that itself contains colons is tolerated.
 func contentKey(fingerprint string) string {
-	parts := strings.Split(fingerprint, ":")
-	if len(parts) < 2 {
+	last := strings.LastIndex(fingerprint, ":")
+	if last < 0 {
 		return fingerprint
 	}
-	return parts[len(parts)-2] + ":" + parts[len(parts)-1]
+	prev := strings.LastIndex(fingerprint[:last], ":")
+	if prev < 0 {
+		return fingerprint
+	}
+	return fingerprint[prev+1:]
 }
 
 // newBaseline builds the fingerprint and content-key sets from a snapshot.
@@ -86,10 +90,10 @@ func WriteBaseline(path string, findings []finding.Finding) error {
 	return os.WriteFile(path, append(data, '\n'), 0600)
 }
 
-// IsSuppressed reports whether a finding matches the baseline by full
+// IsBaselined reports whether a finding matches the baseline by full
 // fingerprint OR by path-independent content key (D-10 OR-match). The content-key
 // arm is what makes a baselined finding survive a file move.
-func (b *Baseline) IsSuppressed(f finding.Finding) bool {
+func (b *Baseline) IsBaselined(f finding.Finding) bool {
 	if b == nil || f.Fingerprint == "" {
 		return false
 	}

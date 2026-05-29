@@ -8,6 +8,7 @@ import (
 
 	mimirconfig "github.com/MatrixMagician/mimir/internal/config"
 	"github.com/MatrixMagician/mimir/internal/detect"
+	"github.com/MatrixMagician/mimir/internal/finding"
 	"github.com/MatrixMagician/mimir/internal/output"
 	"github.com/MatrixMagician/mimir/internal/scanner"
 	"github.com/MatrixMagician/mimir/internal/suppress"
@@ -30,6 +31,8 @@ func init() {
 	scanCmd.Flags().Bool("quiet", false, "Suppress end-of-scan summary line (findings still printed)")
 	scanCmd.Flags().Bool("show-suppressed", false, "Include suppressed findings (inline-ignore, allowlist, baseline) in output, annotated and informational only")
 	scanCmd.Flags().Bool("no-default-excludes", false, "Disable the shipped default path excludes (vendor/, node_modules/, *.min.js, lockfiles)")
+	scanCmd.Flags().String("baseline", "", "Suppress findings present in this baseline JSON file; alert only on NEW findings (e.g. .mimir-baseline.json)")
+	scanCmd.Flags().String("baseline-out", "", "Write the current reportable findings as a baseline JSON snapshot (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
 
 	rootCmd.AddCommand(scanCmd)
@@ -93,6 +96,54 @@ func runScan(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 
+	// 5b. Baseline (SUP-03): a decoupled post-g.Wait() stage (the pipeline
+	// position suppress/doc.go reserves for Phase 4). --baseline marks findings
+	// present in the snapshot as suppressed; --baseline-out snapshots the
+	// reportable set.
+	if baselinePath, _ := cmd.Flags().GetString("baseline"); baselinePath != "" {
+		bl, blErr := suppress.LoadBaseline(baselinePath)
+		if blErr != nil {
+			fmt.Fprintln(os.Stderr, "error:", blErr) // missing/malformed baseline — fail loud
+			os.Exit(2)
+		}
+		if stats.Suppressed == nil {
+			stats.Suppressed = map[string]int{}
+		}
+		for i := range findings {
+			if findings[i].Suppressed {
+				continue // earlier layer (inline-ignore) already owns the reason
+			}
+			if bl.IsBaselined(findings[i]) {
+				findings[i].Suppressed = true
+				findings[i].SuppressionReason = suppress.BaselineReason
+				stats.Suppressed[suppress.BaselineReason]++
+			}
+		}
+	}
+
+	// newFindings is the reportable set: everything not suppressed by any layer.
+	// It drives the exit code (Pitfall 5 / IFACE-02) and the --baseline-out snapshot.
+	var newFindings []finding.Finding
+	for _, f := range findings {
+		if !f.Suppressed {
+			newFindings = append(newFindings, f)
+		}
+	}
+
+	if baselineOut, _ := cmd.Flags().GetString("baseline-out"); baselineOut != "" {
+		if werr := suppress.WriteBaseline(baselineOut, newFindings); werr != nil {
+			fmt.Fprintln(os.Stderr, "error writing baseline:", werr)
+			os.Exit(2)
+		}
+		fmt.Fprintf(os.Stderr, "mimir: wrote baseline with %d finding(s) to %s\n", len(newFindings), baselineOut)
+	}
+
+	// display: suppressed findings are shown only under --show-suppressed (D-12).
+	display := newFindings
+	if showSuppressed {
+		display = findings
+	}
+
 	// 6. Output: determine format and color settings
 	format, _ := cmd.Flags().GetString("format")
 	noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
@@ -104,26 +155,20 @@ func runScan(cmd *cobra.Command, args []string) error {
 		// JSON output to stdout (D-03); findings already have redacted Secret fields (OUT-03).
 		// Suppressed findings are present only when --show-suppressed kept them, carrying
 		// suppressed/suppression_reason for audit (D-12).
-		if err := output.WriteJSON(os.Stdout, findings, stats); err != nil {
+		if err := output.WriteJSON(os.Stdout, display, stats); err != nil {
 			fmt.Fprintln(os.Stderr, "error encoding JSON:", err)
 			os.Exit(2)
 		}
 	} else {
 		// Human-readable output (default) (D-12)
-		output.WriteHuman(os.Stdout, findings, stats, noColor, quiet, verbose)
+		output.WriteHuman(os.Stdout, display, stats, noColor, quiet, verbose)
 	}
 
 	// 7. Exit code contract (IFACE-02): 0=clean, 1=findings (unless --exit-zero), 2=error.
-	// Only NON-suppressed findings flip the exit code (D-12) — an inline-ignored
-	// finding must never fail CI, even under --show-suppressed.
-	activeCount := 0
-	for _, f := range findings {
-		if !f.Suppressed {
-			activeCount++
-		}
-	}
+	// Only NON-suppressed (NEW) findings flip the exit code (D-12, Pitfall 5) — a
+	// suppressed finding never fails CI, even under --show-suppressed.
 	exitZero, _ := cmd.Flags().GetBool("exit-zero")
-	if activeCount > 0 && !exitZero {
+	if len(newFindings) > 0 && !exitZero {
 		os.Exit(1)
 	}
 

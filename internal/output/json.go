@@ -15,11 +15,15 @@ type ScanResult struct {
 	Summary  ScanSummary       `json:"summary"`
 }
 
-// ScanSummary holds aggregate stats about the scan run.
+// ScanSummary holds aggregate stats about the scan run. The first three fields
+// are frozen (OUT-02); the Phase 2 fields are additive and omitempty so the
+// default schema is byte-identical to Phase 1 when nothing was suppressed.
 type ScanSummary struct {
-	FilesScanned int   `json:"files_scanned"`
-	FindingCount int   `json:"finding_count"`
-	DurationMs   int64 `json:"duration_ms"`
+	FilesScanned  int            `json:"files_scanned"`
+	FindingCount  int            `json:"finding_count"`
+	DurationMs    int64          `json:"duration_ms"`
+	PathsExcluded int            `json:"paths_excluded,omitempty"` // D-13
+	Suppressed    map[string]int `json:"suppressed,omitempty"`     // D-11: reason -> count
 }
 
 // WriteJSON encodes findings and stats as a JSON ScanResult to w.
@@ -34,13 +38,25 @@ func WriteJSON(w io.Writer, findings []finding.Finding, stats scanner.Stats) err
 	result := ScanResult{
 		Findings: findings,
 		Summary: ScanSummary{
-			FilesScanned: stats.FilesScanned,
-			FindingCount: len(findings),
-			DurationMs:   stats.Duration.Milliseconds(),
+			FilesScanned:  stats.FilesScanned,
+			FindingCount:  len(findings),
+			DurationMs:    stats.Duration.Milliseconds(),
+			PathsExcluded: stats.PathsExcluded,
+			Suppressed:    emptyToNil(stats.Suppressed),
 		},
 	}
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(result)
+}
+
+// emptyToNil returns nil for an empty map so the omitempty Suppressed field is
+// dropped entirely (preserving the OUT-02 byte-identical schema when nothing was
+// suppressed) rather than serializing as "suppressed":{}.
+func emptyToNil(m map[string]int) map[string]int {
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }

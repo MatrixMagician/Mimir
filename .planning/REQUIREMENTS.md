@@ -37,10 +37,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Suppression
 
-- [ ] **SUP-01**: User can suppress a finding with an inline ignore comment (`// mimir:ignore`)
-- [ ] **SUP-02**: User can exclude paths/globs via a `.mimirignore` file
-- [ ] **SUP-03**: User can create and use a baseline file so Mimir alerts only on NEW findings vs a snapshot
-- [ ] **SUP-04**: Mimir ships sensible default allowlists for noisy paths (lockfiles, `vendor/`, `node_modules/`, `*.min.js`, etc.)
+- [x] **SUP-01**: User can suppress a finding with an inline ignore comment (`// mimir:ignore`)
+- [x] **SUP-02**: User can exclude paths/globs via a `.mimirignore` file
+- [x] **SUP-03**: User can create and use a baseline file so Mimir alerts only on NEW findings vs a snapshot
+- [x] **SUP-04**: Mimir ships sensible default allowlists for noisy paths (lockfiles, `vendor/`, `node_modules/`, `*.min.js`, etc.)
 - [x] **SUP-05**: Findings carry a stable fingerprint (repo-relative path + rule ID + content hash) that survives line shifts, file moves, and cross-platform paths
 
 ### Configuration
@@ -112,10 +112,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SUP-05 | Phase 1 | Complete |
 | CFG-01 | Phase 1 | Complete |
 | CFG-02 | Phase 1 | Complete |
-| SUP-01 | Phase 2 | Pending |
-| SUP-02 | Phase 2 | Pending |
-| SUP-03 | Phase 2 | Pending |
-| SUP-04 | Phase 2 | Pending |
+| SUP-01 | Phase 2 | Complete |
+| SUP-02 | Phase 2 | Complete |
+| SUP-03 | Phase 2 | Complete |
+| SUP-04 | Phase 2 | Complete |
 | SCAN-03 | Phase 3 | Pending |
 | SCAN-04 | Phase 3 | Pending |
 | IFACE-03 | Phase 3 | Pending |
@@ -124,6 +124,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VERIFY-03 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 25 total
 - Mapped to phases: 25 ✓
 - Unmapped: 0

@@ -124,6 +124,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
-| 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete   | 2026-05-29 |
+| 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete    | 2026-05-29 |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

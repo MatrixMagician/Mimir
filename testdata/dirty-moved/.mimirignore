@@ -1,0 +1,5 @@
+# Dirty fixture path-ignore rules — exercised by Plan 03 (.mimirignore parser).
+# Includes a recursive ** glob and a ! negation so the parser is exercised.
+**/*.tmp
+build/**
+!build/keep.go

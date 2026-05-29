@@ -21,12 +21,12 @@ const InlineReason = "inline-ignore"
 // their original case for the exact, case-sensitive comparison in D-03.
 var inlineDirectiveRE = regexp.MustCompile(`(?i)mimir:ignore\b(:([a-zA-Z0-9_,-]+))?`)
 
-// LineSuppresses reports whether an inline mimir-ignore directive on the given
+// InlineSuppresses reports whether an inline mimir-ignore directive on the given
 // source line suppresses the given rule (D-01..D-03). It operates on a single
 // physical line — it never scans across lines. A blanket `mimir:ignore`
 // suppresses any rule; a scoped `mimir:ignore:<rule-id>[,<rule-id>...]`
 // suppresses only the listed rule IDs, compared case-sensitively against ruleID.
-func LineSuppresses(line, ruleID string) bool {
+func InlineSuppresses(line, ruleID string) bool {
 	m := inlineDirectiveRE.FindStringSubmatch(line)
 	if m == nil {
 		return false

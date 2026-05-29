@@ -2,7 +2,7 @@ package suppress
 
 import "testing"
 
-func TestLineSuppresses(t *testing.T) {
+func TestInlineSuppresses(t *testing.T) {
 	cases := []struct {
 		name string
 		line string
@@ -22,8 +22,8 @@ func TestLineSuppresses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := LineSuppresses(tc.line, tc.rule); got != tc.want {
-				t.Errorf("LineSuppresses(%q, %q) = %v, want %v", tc.line, tc.rule, got, tc.want)
+			if got := InlineSuppresses(tc.line, tc.rule); got != tc.want {
+				t.Errorf("InlineSuppresses(%q, %q) = %v, want %v", tc.line, tc.rule, got, tc.want)
 			}
 		})
 	}

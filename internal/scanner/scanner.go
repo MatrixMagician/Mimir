@@ -19,6 +19,7 @@ import (
 	"github.com/MatrixMagician/mimir/internal/config"
 	"github.com/MatrixMagician/mimir/internal/detect"
 	"github.com/MatrixMagician/mimir/internal/finding"
+	"github.com/MatrixMagician/mimir/internal/suppress"
 )
 
 // Stats records metrics from a completed scan.
@@ -41,6 +42,13 @@ type Stats struct {
 type Scanner struct {
 	engine *detect.Engine
 	cfg    *config.Config
+
+	// ShowSuppressed controls the inline-ignore annotate-vs-drop branch
+	// (D-12). When false (default), an inline-ignored finding is DROPPED at
+	// scan time; when true, it is KEPT and annotated (Suppressed=true,
+	// SuppressionReason="inline-ignore") so it reaches the output stage. The
+	// suppressed count is incremented in BOTH cases.
+	ShowSuppressed bool
 }
 
 // New creates a Scanner with the given engine and config.
@@ -60,6 +68,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 
 	var mu sync.Mutex
 	var allFindings []finding.Finding
+	suppressedCounts := map[string]int{}
 	var filesScanned atomic.Int64
 
 	for _, root := range paths {
@@ -113,7 +122,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 			rootPath := root
 
 			g.Go(func() error {
-				findings, scanErr := s.scanFile(ctx, filePath, rootPath)
+				findings, fileSuppressed, scanErr := s.scanFile(ctx, filePath, rootPath)
 				if scanErr != nil {
 					if s.cfg.Verbose {
 						fmt.Fprintf(os.Stderr, "mimir: error scanning %s: %v\n", filePath, scanErr)
@@ -121,9 +130,12 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 					return nil // file errors are non-fatal
 				}
 				filesScanned.Add(1)
-				if len(findings) > 0 {
+				if len(findings) > 0 || len(fileSuppressed) > 0 {
 					mu.Lock()
 					allFindings = append(allFindings, findings...)
+					for reason, n := range fileSuppressed {
+						suppressedCounts[reason] += n
+					}
 					mu.Unlock()
 				}
 				return nil
@@ -152,20 +164,25 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 		return allFindings[i].Column < allFindings[j].Column
 	})
 
+	// suppressedCounts was accumulated during the walk (D-11). It counts every
+	// inline-ignored finding regardless of the annotate-vs-drop branch, so the
+	// summary is accurate even when suppressed findings were dropped at scan time.
 	return allFindings, Stats{
 		FilesScanned: int(filesScanned.Load()),
 		Duration:     time.Since(start),
-		Suppressed:   map[string]int{},
+		Suppressed:   suppressedCounts,
 	}, nil
 }
 
-// scanFile reads a single file and returns all findings.
-// It enforces binary detection and uses the engine for line-by-line scanning.
-func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]finding.Finding, error) {
+// scanFile reads a single file and returns its findings plus a per-reason
+// suppression count. It enforces binary detection and uses the engine for
+// line-by-line scanning. Inline-ignored findings are dropped (default) or
+// kept+annotated (when s.ShowSuppressed) but counted in either case.
+func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]finding.Finding, map[string]int, error) {
 	// Open and read the file
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 
@@ -173,17 +190,17 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	header := make([]byte, 512)
 	n, err := f.Read(header)
 	if err != nil && n == 0 {
-		return nil, nil // empty file
+		return nil, nil, nil // empty file
 	}
 	header = header[:n]
 
 	if isBinary(header) {
-		return nil, nil // skip binary files
+		return nil, nil, nil // skip binary files
 	}
 
 	// Rewind and read full content line by line
 	if _, err := f.Seek(0, 0); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Compute repo-relative path (forward-slash normalized)
@@ -196,6 +213,7 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	relPath = strings.TrimPrefix(relPath, "./")
 
 	var findings []finding.Finding
+	suppressed := map[string]int{}
 	lineNum := 0
 	scanner := bufio.NewScanner(f)
 	// Increase scanner buffer for long lines
@@ -203,19 +221,30 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return findings, ctx.Err()
+			return findings, suppressed, ctx.Err()
 		default:
 		}
 		lineNum++
 		line := scanner.Text()
 		lineFindings := s.engine.ScanLine(line, relPath, lineNum)
-		if len(lineFindings) > 0 {
-			findings = append(findings, lineFindings...)
+		// Inline-ignore suppression (SUP-01/D-12): if a finding's own source
+		// line carries a mimir-ignore directive for its rule, count it and
+		// either drop it (default) or annotate-and-keep (--show-suppressed).
+		for i := range lineFindings {
+			if suppress.InlineSuppresses(line, lineFindings[i].RuleID) {
+				suppressed[suppress.InlineReason]++
+				if !s.ShowSuppressed {
+					continue // drop: do not append
+				}
+				lineFindings[i].Suppressed = true
+				lineFindings[i].SuppressionReason = suppress.InlineReason
+			}
+			findings = append(findings, lineFindings[i])
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return findings, err
+		return findings, suppressed, err
 	}
 
-	return findings, nil
+	return findings, suppressed, nil
 }

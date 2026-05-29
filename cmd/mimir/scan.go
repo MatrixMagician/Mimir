@@ -27,6 +27,7 @@ func init() {
 	scanCmd.Flags().Bool("no-entropy", false, "Disable Shannon entropy check (more findings, more noise)")
 	scanCmd.Flags().BoolP("verbose", "v", false, "Enable verbose diagnostic output to stderr")
 	scanCmd.Flags().Bool("quiet", false, "Suppress end-of-scan summary line (findings still printed)")
+	scanCmd.Flags().Bool("show-suppressed", false, "Include suppressed findings (inline-ignore, allowlist, baseline) in output, annotated and informational only")
 	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
 
 	rootCmd.AddCommand(scanCmd)
@@ -59,8 +60,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	cfg.Verbose = verbose
 
 	// 4. Build engine and scanner
+	showSuppressed, _ := cmd.Flags().GetBool("show-suppressed")
 	engine := detect.NewEngine(cfg)
 	s := scanner.New(engine, cfg)
+	// --show-suppressed drives the scanner's inline-ignore annotate-vs-drop
+	// branch (D-12): keep+annotate suppressed findings instead of dropping them.
+	s.ShowSuppressed = showSuppressed
 
 	// 5. Scan
 	findings, stats, err := s.Scan(cmd.Context(), paths)
@@ -77,19 +82,29 @@ func runScan(cmd *cobra.Command, args []string) error {
 	quiet, _ := cmd.Flags().GetBool("quiet")
 
 	if format == "json" {
-		// JSON output to stdout (D-03); findings already have redacted Secret fields (OUT-03)
+		// JSON output to stdout (D-03); findings already have redacted Secret fields (OUT-03).
+		// Suppressed findings are present only when --show-suppressed kept them, carrying
+		// suppressed/suppression_reason for audit (D-12).
 		if err := output.WriteJSON(os.Stdout, findings, stats); err != nil {
 			fmt.Fprintln(os.Stderr, "error encoding JSON:", err)
 			os.Exit(2)
 		}
 	} else {
 		// Human-readable output (default) (D-12)
-		output.WriteHuman(os.Stdout, findings, stats, noColor, quiet)
+		output.WriteHuman(os.Stdout, findings, stats, noColor, quiet, verbose)
 	}
 
-	// 7. Exit code contract (IFACE-02): 0=clean, 1=findings (unless --exit-zero), 2=error
+	// 7. Exit code contract (IFACE-02): 0=clean, 1=findings (unless --exit-zero), 2=error.
+	// Only NON-suppressed findings flip the exit code (D-12) — an inline-ignored
+	// finding must never fail CI, even under --show-suppressed.
+	activeCount := 0
+	for _, f := range findings {
+		if !f.Suppressed {
+			activeCount++
+		}
+	}
 	exitZero, _ := cmd.Flags().GetBool("exit-zero")
-	if len(findings) > 0 && !exitZero {
+	if activeCount > 0 && !exitZero {
 		os.Exit(1)
 	}
 

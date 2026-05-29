@@ -34,7 +34,8 @@
     "tdd_mode": false,
     "ui_review": true,
     "use_worktrees": true,
-    "_auto_chain_active": false
+    "_auto_chain_active": false,
+    "auto_prune_state": true
   },
   "ship": {
     "pr_body_sections": []
@@ -55,5 +56,13 @@
   "graphify": {
     "enabled": true,
     "auto_update": true
+  },
+  "context_window": 1000000,
+  "model_profile_overrides": {
+    "claude": {
+      "opus": "claude-opus-4-8",
+      "sonnet": "claude-sonnet-4-6",
+      "haiku": "claude-haiku-4-5"
+    }
   }
 }

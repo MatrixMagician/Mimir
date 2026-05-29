@@ -14,7 +14,7 @@ Mimir's journey is dependency-driven and front-loads trust. Phase 1 ships a comp
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Usable End-to-End Scanner** - Redacting data model, fingerprint scheme, layered detection engine, filesystem/config source, concurrent pipeline, human + JSON output, `mimir scan` CLI, CI exit codes (completed 2026-05-22)
-- [ ] **Phase 2: False-Positive Control (Suppression + Baseline)** - Inline ignore, `.mimirignore`, default allowlists, and a stable-fingerprint baseline so Mimir alerts only on NEW findings
+- [x] **Phase 2: False-Positive Control (Suppression + Baseline)** - Inline ignore, `.mimirignore`, default allowlists, and a stable-fingerprint baseline so Mimir alerts only on NEW findings (completed 2026-05-29)
 - [ ] **Phase 3: Full Source Coverage (Git History + Staged + Pre-commit)** - Memory-bounded git-history scan (incl. deleted secrets), staged-changes scan, and the pre-commit hook installer
 - [ ] **Phase 4: Opt-in Live Verification (AWS + GitHub)** - Read-only, cached, rate-limited liveness checks behind `--verify` with three-state classification
 
@@ -76,7 +76,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 — shares scan.go/output)*
 
-- [ ] 02-04-PLAN.md — Baseline slice (SUP-03) + transparency (D-11/D-12/D-13) + exit-code fix: OR-match filter, --baseline/--baseline-out/--show-suppressed, criterion-4 stability
+- [x] 02-04-PLAN.md — Baseline slice (SUP-03) + transparency (D-11/D-12/D-13) + exit-code fix: OR-match filter, --baseline/--baseline-out/--show-suppressed, criterion-4 stability
 
 ### Phase 3: Full Source Coverage (Git History + Staged + Pre-commit)
 
@@ -124,6 +124,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
-| 2. False-Positive Control (Suppression + Baseline) | 3/4 | In Progress|  |
+| 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete   | 2026-05-29 |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

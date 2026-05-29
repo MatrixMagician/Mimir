@@ -25,6 +25,14 @@ import (
 type Stats struct {
 	FilesScanned int
 	Duration     time.Duration
+
+	// PathsExcluded (D-13) is the aggregate count of paths skipped by the
+	// path-exclusion layer (.mimirignore + default globs). Suppressed (D-11)
+	// maps a suppression reason ("inline-ignore" | "allowlist" | "baseline")
+	// to the number of findings withheld for that reason. Both are populated
+	// by the suppression layers landing in Plans 02–04.
+	PathsExcluded int
+	Suppressed    map[string]int
 }
 
 // Scanner orchestrates the filesystem walk and detection engine.
@@ -147,6 +155,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	return allFindings, Stats{
 		FilesScanned: int(filesScanned.Load()),
 		Duration:     time.Since(start),
+		Suppressed:   map[string]int{},
 	}, nil
 }
 

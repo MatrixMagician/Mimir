@@ -33,6 +33,15 @@ type Finding struct {
 	Fingerprint string  `json:"fingerprint"` // path:rule_id:sha256[:16]
 	Entropy     float32 `json:"entropy,omitempty"`
 	IsHeuristic bool    `json:"is_heuristic,omitempty"`
+
+	// Suppressed and SuppressionReason (D-12) are populated by the suppression
+	// layers when a finding is withheld but still surfaced via --show-suppressed.
+	// Both are omitempty so the Phase 1 OUT-02 schema is byte-identical for
+	// findings that are not suppressed. They carry only a bool and an enum-like
+	// reason string ("baseline" | "inline-ignore" | "allowlist") — never a raw
+	// secret, preserving the redact-at-boundary invariant above.
+	Suppressed        bool   `json:"suppressed,omitempty"`
+	SuppressionReason string `json:"suppression_reason,omitempty"`
 }
 
 // minVisibleLen is the D-05 guardrail threshold: secrets shorter than this

@@ -6,9 +6,36 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/MatrixMagician/mimir/internal/suppress"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestWalkPruneCount verifies that path-excluded entries are pruned (never
+// opened) and counted in Stats.PathsExcluded (D-05/D-13), while non-excluded
+// files are still scanned.
+func TestWalkPruneCount(t *testing.T) {
+	s := newTestScanner(t)
+	m, err := suppress.NewPathMatcher(nil, true) // defaults on
+	require.NoError(t, err)
+	s.Matcher = m
+
+	dir := t.TempDir()
+	secret := "aws_key = \"AKIAFAKEKEYABCDE2345\"\n"
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "lib.go"), []byte(secret), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.min.js"), []byte(secret), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.go"), []byte(secret), 0600))
+
+	findings, stats, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err)
+
+	assert.Greater(t, stats.PathsExcluded, 0, "vendor/ and app.min.js should be pruned and counted")
+	for _, f := range findings {
+		assert.NotContains(t, f.File, "vendor", "vendor/ must be pruned")
+		assert.NotContains(t, f.File, ".min.js", "*.min.js must be pruned")
+	}
+}
 
 // TestStatsTransparencyCounters verifies the D-11/D-13 Stats fields exist and
 // that a completed Scan returns a usable (non-nil) Suppressed map with a zero

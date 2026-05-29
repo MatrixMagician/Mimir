@@ -146,3 +146,60 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatalf("expected exit 0 for version command, got %d", code)
 	}
 }
+
+// TestDefaultExcludes verifies first-run defaults keep vendor/, node_modules/,
+// *.min.js and lockfiles quiet while the top-level secret is still reported
+// (SUP-04, criterion 2).
+func TestDefaultExcludes(t *testing.T) {
+	stdout, _, code := runMimir(t, "scan", "--no-color", "testdata/dirty")
+	if code != 1 {
+		t.Fatalf("expected exit 1 (top-level secret present), got %d", code)
+	}
+	assert.Contains(t, stdout, "src/app.go", "the non-excluded secret must be reported")
+	assert.NotContains(t, stdout, "vendor/", "vendor/ must be excluded by default")
+	assert.NotContains(t, stdout, "node_modules/", "node_modules/ must be excluded by default")
+	assert.NotContains(t, stdout, ".min.js", "*.min.js must be excluded by default")
+	assert.NotContains(t, stdout, "package-lock.json", "lockfiles must be excluded by default")
+}
+
+// TestMimirignoreNegation verifies a `!negation` re-includes a default-excluded
+// path so its secret is reported (SUP-02, D-07).
+func TestMimirignoreNegation(t *testing.T) {
+	dir := t.TempDir()
+	secret := "aws_key = \"AKIAFAKEKEYABCDE2345\"\n"
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "leak.txt"), []byte(secret), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimirignore"), []byte("!vendor/**\n"), 0600))
+
+	stdout, _, code := runMimir(t, "scan", "--no-color", dir)
+	if code != 1 {
+		t.Fatalf("expected exit 1 (re-included secret present), got %d", code)
+	}
+	assert.Contains(t, stdout, "vendor/leak.txt", "!vendor/** must re-include the default-excluded path")
+}
+
+// TestDefaultsToggleOff verifies use_default_allowlists=false disables ALL
+// shipped defaults so the vendor/ secret is reported (D-07 master toggle).
+func TestDefaultsToggleOff(t *testing.T) {
+	dir := t.TempDir()
+	secret := "aws_key = \"AKIAFAKEKEYABCDE2345\"\n"
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "leak.txt"), []byte(secret), 0600))
+	cfg := "[extend]\nuse_default = true\nuse_default_allowlists = false\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimir.toml"), []byte(cfg), 0600))
+
+	stdout, _, code := runMimir(t, "scan", "--no-color", dir)
+	if code != 1 {
+		t.Fatalf("expected exit 1 (vendor secret reported with defaults off), got %d", code)
+	}
+	assert.Contains(t, stdout, "vendor/leak.txt", "defaults-off must scan vendor/")
+}
+
+// TestMalformedMimirignoreFailsLoud verifies a malformed .mimirignore glob exits
+// 2 (fail loud, Security V14).
+func TestMalformedMimirignoreFailsLoud(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimirignore"), []byte("a/[b\n"), 0600))
+	_, _, code := runMimir(t, "scan", "--no-color", dir)
+	assert.Equal(t, 2, code, "a malformed .mimirignore glob must exit 2")
+}

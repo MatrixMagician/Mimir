@@ -104,8 +104,10 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 					return filepath.SkipDir
 				}
 				// Path-prune: a matched directory's whole subtree is skipped
-				// without descending into it (SUP-02/SUP-04, D-05).
+				// without descending into it (SUP-02/SUP-04, D-05). The pruned
+				// directory counts as one excluded path (D-13).
 				if s.Matcher != nil && rel != "" && s.Matcher.Excluded(rel, true) {
+					pathsExcluded.Add(1)
 					return filepath.SkipDir
 				}
 				return nil

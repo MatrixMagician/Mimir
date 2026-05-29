@@ -167,36 +167,40 @@ func TestDefaultExcludes(t *testing.T) {
 }
 
 // TestMimirignoreNegation verifies a `!negation` re-includes a default-excluded
-// path so its secret is reported (SUP-02, D-07).
+// path so its secret is reported (SUP-02, D-07). It uses build/ — excluded by the
+// default glob **/build/** but NOT covered by the embedded content-allowlist
+// paths (test/, vendor/, node_modules/, …), so re-inclusion is observable.
 func TestMimirignoreNegation(t *testing.T) {
 	dir := t.TempDir()
-	secret := "aws_key = \"AKIAFAKEKEYABCDE2345\"\n"
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0750))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "leak.txt"), []byte(secret), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimirignore"), []byte("!vendor/**\n"), 0600))
+	secret := "\tAccessKey: \"AKIAFAKEKEYABCDE2345\"\n" // identical to testdata/dirty/src/app.go (proven detected)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "leak.txt"), []byte(secret), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimirignore"), []byte("!**/build/**\n"), 0600))
 
 	stdout, _, code := runMimir(t, "scan", "--no-color", dir)
 	if code != 1 {
 		t.Fatalf("expected exit 1 (re-included secret present), got %d", code)
 	}
-	assert.Contains(t, stdout, "vendor/leak.txt", "!vendor/** must re-include the default-excluded path")
+	assert.Contains(t, stdout, "build/leak.txt", "!**/build/** must re-include the default-excluded path")
 }
 
-// TestDefaultsToggleOff verifies use_default_allowlists=false disables ALL
-// shipped defaults so the vendor/ secret is reported (D-07 master toggle).
+// TestDefaultsToggleOff verifies use_default_allowlists=false disables the shipped
+// default path-prune globs so a build/ secret is reported (D-07 master toggle).
+// build/ is excluded only by a default glob, not by the content-allowlist, so the
+// toggle's effect is observable.
 func TestDefaultsToggleOff(t *testing.T) {
 	dir := t.TempDir()
-	secret := "aws_key = \"AKIAFAKEKEYABCDE2345\"\n"
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0750))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "leak.txt"), []byte(secret), 0600))
+	secret := "\tAccessKey: \"AKIAFAKEKEYABCDE2345\"\n" // identical to testdata/dirty/src/app.go (proven detected)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "build"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "build", "leak.txt"), []byte(secret), 0600))
 	cfg := "[extend]\nuse_default = true\nuse_default_allowlists = false\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimir.toml"), []byte(cfg), 0600))
 
 	stdout, _, code := runMimir(t, "scan", "--no-color", dir)
 	if code != 1 {
-		t.Fatalf("expected exit 1 (vendor secret reported with defaults off), got %d", code)
+		t.Fatalf("expected exit 1 (build secret reported with defaults off), got %d", code)
 	}
-	assert.Contains(t, stdout, "vendor/leak.txt", "defaults-off must scan vendor/")
+	assert.Contains(t, stdout, "build/leak.txt", "defaults-off must scan build/")
 }
 
 // TestMalformedMimirignoreFailsLoud verifies a malformed .mimirignore glob exits

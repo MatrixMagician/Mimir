@@ -72,7 +72,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 — shares scanner.go/scan.go)*
 
-- [ ] 02-03-PLAN.md — Path-prune slice (SUP-02/SUP-04): PathMatcher (doublestar) + default globs + master toggle, walk-prune, excluded-count
+- [x] 02-03-PLAN.md — Path-prune slice (SUP-02/SUP-04): PathMatcher (doublestar) + default globs + master toggle, walk-prune, excluded-count
 
 **Wave 4** *(blocked on Wave 3 — shares scan.go/output)*
 
@@ -124,6 +124,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
-| 2. False-Positive Control (Suppression + Baseline) | 2/4 | In Progress|  |
+| 2. False-Positive Control (Suppression + Baseline) | 3/4 | In Progress|  |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

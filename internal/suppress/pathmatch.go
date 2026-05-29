@@ -117,7 +117,9 @@ func (m *PathMatcher) Excluded(relPath string, isDir bool) bool {
 	if m == nil {
 		return false
 	}
-	rel := strings.TrimPrefix(filepath.ToSlash(relPath), "./")
+	// Normalize backslashes unconditionally: filepath.ToSlash is a no-op on
+	// non-Windows, so force the replace for cross-platform glob stability (Pitfall 1).
+	rel := strings.TrimPrefix(filepath.ToSlash(strings.ReplaceAll(relPath, `\`, "/")), "./")
 	if rel == "" || rel == "." {
 		return false
 	}

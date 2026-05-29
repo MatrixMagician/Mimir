@@ -41,6 +41,11 @@ type Config struct {
 	MaxFileSizeMB    int
 	NoEntropy        bool
 	Verbose          bool
+
+	// UseDefaultExcludes is the normalized master toggle for the shipped
+	// default path-prune globs (SUP-04, D-07). It defaults to true; it is set
+	// false only when the user config sets `[extend] use_default_allowlists = false`.
+	UseDefaultExcludes bool
 }
 
 // rawConfig mirrors the TOML schema for decoding. After decoding, rules
@@ -57,6 +62,10 @@ type extendSection struct {
 	UseDefault    bool     `toml:"use_default"`
 	DisabledRules []string `toml:"disabled_rules"`
 	Path          string   `toml:"path"` // reserved for Phase 2; not implemented in Phase 1
+	// UseDefaultAllowlists is the master toggle for the shipped default
+	// path-prune globs (SUP-04, D-07). A pointer so absence (nil) means
+	// default-ON; only an explicit `use_default_allowlists = false` disables them.
+	UseDefaultAllowlists *bool `toml:"use_default_allowlists"`
 }
 
 // rawRule is the TOML decode target for a single rule (before regex compilation).
@@ -157,6 +166,9 @@ func parseBytes(data []byte) (*rawConfig, error) {
 func mergeConfigs(base, overlay *rawConfig) *rawConfig {
 	merged := &rawConfig{
 		Title: base.Title,
+		// Carry the overlay's [extend] block so the user's master toggle
+		// (use_default_allowlists) survives the extend merge (D-07).
+		Extend: overlay.Extend,
 	}
 
 	// Start with base rules, append overlay rules
@@ -192,6 +204,8 @@ func mergeConfigs(base, overlay *rawConfig) *rawConfig {
 func compile(raw *rawConfig) (*Config, error) {
 	cfg := &Config{
 		MaxFileSizeMB: 10,
+		// Default-ON unless the user explicitly set use_default_allowlists = false (D-07).
+		UseDefaultExcludes: raw.Extend.UseDefaultAllowlists == nil || *raw.Extend.UseDefaultAllowlists,
 	}
 
 	// Compile and validate global allowlist regexes

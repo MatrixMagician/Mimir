@@ -10,6 +10,7 @@ import (
 	"github.com/MatrixMagician/mimir/internal/detect"
 	"github.com/MatrixMagician/mimir/internal/output"
 	"github.com/MatrixMagician/mimir/internal/scanner"
+	"github.com/MatrixMagician/mimir/internal/suppress"
 )
 
 var scanCmd = &cobra.Command{
@@ -28,6 +29,7 @@ func init() {
 	scanCmd.Flags().BoolP("verbose", "v", false, "Enable verbose diagnostic output to stderr")
 	scanCmd.Flags().Bool("quiet", false, "Suppress end-of-scan summary line (findings still printed)")
 	scanCmd.Flags().Bool("show-suppressed", false, "Include suppressed findings (inline-ignore, allowlist, baseline) in output, annotated and informational only")
+	scanCmd.Flags().Bool("no-default-excludes", false, "Disable the shipped default path excludes (vendor/, node_modules/, *.min.js, lockfiles)")
 	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
 
 	rootCmd.AddCommand(scanCmd)
@@ -66,6 +68,23 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// --show-suppressed drives the scanner's inline-ignore annotate-vs-drop
 	// branch (D-12): keep+annotate suppressed findings instead of dropping them.
 	s.ShowSuppressed = showSuppressed
+
+	// Path-exclusion (SUP-02/SUP-04): combine the shipped default globs (unless
+	// disabled by config or --no-default-excludes) with the .mimirignore at the
+	// scan root, and prune matching paths during the walk (D-05).
+	noDefaultExcludes, _ := cmd.Flags().GetBool("no-default-excludes")
+	useDefaults := cfg.UseDefaultExcludes && !noDefaultExcludes
+	ignoreGlobs, err := suppress.LoadMimirIgnore(scanRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error reading .mimirignore:", err)
+		os.Exit(2)
+	}
+	matcher, err := suppress.NewPathMatcher(ignoreGlobs, useDefaults)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err) // malformed .mimirignore glob — fail loud (Security V14)
+		os.Exit(2)
+	}
+	s.Matcher = matcher
 
 	// 5. Scan
 	findings, stats, err := s.Scan(cmd.Context(), paths)

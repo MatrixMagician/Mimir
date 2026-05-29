@@ -49,6 +49,10 @@ type Scanner struct {
 	// SuppressionReason="inline-ignore") so it reaches the output stage. The
 	// suppressed count is incremented in BOTH cases.
 	ShowSuppressed bool
+
+	// Matcher prunes paths from the walk before they are opened (SUP-02/SUP-04,
+	// D-05). When nil, no path exclusion is applied.
+	Matcher *suppress.PathMatcher
 }
 
 // New creates a Scanner with the given engine and config.
@@ -70,6 +74,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	var allFindings []finding.Finding
 	suppressedCounts := map[string]int{}
 	var filesScanned atomic.Int64
+	var pathsExcluded atomic.Int64
 
 	for _, root := range paths {
 		root := root // capture loop variable
@@ -90,9 +95,17 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 				return nil
 			}
 
+			// Repo-relative, forward-slash path for path-prune matching (D-05).
+			rel := relForMatch(root, path)
+
 			// Skip .git directory
 			if d.IsDir() {
 				if d.Name() == ".git" {
+					return filepath.SkipDir
+				}
+				// Path-prune: a matched directory's whole subtree is skipped
+				// without descending into it (SUP-02/SUP-04, D-05).
+				if s.Matcher != nil && rel != "" && s.Matcher.Excluded(rel, true) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -100,6 +113,12 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 
 			// Only process regular files
 			if !d.Type().IsRegular() {
+				return nil
+			}
+
+			// Path-prune matched files: never opened, only counted (D-05/D-13).
+			if s.Matcher != nil && rel != "" && s.Matcher.Excluded(rel, false) {
+				pathsExcluded.Add(1)
 				return nil
 			}
 
@@ -168,10 +187,22 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	// inline-ignored finding regardless of the annotate-vs-drop branch, so the
 	// summary is accurate even when suppressed findings were dropped at scan time.
 	return allFindings, Stats{
-		FilesScanned: int(filesScanned.Load()),
-		Duration:     time.Since(start),
-		Suppressed:   suppressedCounts,
+		FilesScanned:  int(filesScanned.Load()),
+		PathsExcluded: int(pathsExcluded.Load()),
+		Duration:      time.Since(start),
+		Suppressed:    suppressedCounts,
 	}, nil
+}
+
+// relForMatch returns the repo-relative, forward-slash path of p under root,
+// used for path-prune matching. It mirrors the normalization scanFile applies
+// to finding paths so glob matches and reported paths agree.
+func relForMatch(root, p string) string {
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		rel = p
+	}
+	return strings.TrimPrefix(filepath.ToSlash(rel), "./")
 }
 
 // scanFile reads a single file and returns its findings plus a per-reason

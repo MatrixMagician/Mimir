@@ -482,7 +482,15 @@ type Stats struct {
 | A4 | Default config key for the master toggle is `extend.use_default_allowlists` | User Constraints / Config | None — CONTEXT.md explicitly leaves the exact key to the planner; this is a suggestion |
 | A5 | `--baseline-out` writes the FULL finding set (not the post-suppression set) so the baseline is a complete snapshot | Open Q5 | Medium — affects baseline semantics; see Open Q5. Resolve before implementing |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All open questions are resolved as of phase planning (2026-05-29). Chosen answers:
+> - **Q1:** Master toggle lives in `.mimir.toml` (`extend.use_default_allowlists`) as primary; a CLI flag is optional/cheap-to-add later (Plan 03 discretion).
+> - **Q2:** Keep the existing `[[allowlists]] paths` regex entries for now; add prune globs as the primary mechanism (Plan 03). Revisit migration only if a Phase 1 test conflicts.
+> - **Q3:** The post-scan baseline filter lives in `internal/suppress`, called from `runScan` as a single post-`g.Wait()` stage over `[]Finding` — NOT inside the per-file goroutine (Plan 04 Task 2).
+> - **Q4:** Baseline schema is the wrapped envelope `{"version":1,"generated_at":"<rfc3339>","findings":[...]}` (A2) (Plan 04 Task 1).
+> - **Q5 (was MEDIUM — user-confirmed):** `--baseline-out` snapshots the REPORTABLE (post-suppression, non-suppressed) finding set — "the findings you are accepting as known" — NOT the suppressed ones. Consistent with D-09. Accepted by the user; proceed (Plan 04 Task 2 writes `newFindings`).
+
 
 1. **Should the master toggle live in `.mimir.toml` (`extend`) or as a CLI flag (or both)?**
    - What we know: `extendSection` already exists in config; CONTEXT.md suggests `extend.use_default_allowlists = false`.

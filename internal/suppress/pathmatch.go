@@ -42,17 +42,31 @@ type PathMatcher struct {
 	patterns []pattern
 }
 
+// validGlob reports whether g is a well-formed doublestar pattern. It probes via
+// doublestar.Match against a sample path: a malformed pattern returns
+// ErrBadPattern. This is more robust than relying on a specific validator helper
+// being present/behaving across doublestar versions.
+func validGlob(g string) bool {
+	if _, err := doublestar.Match(g, "a/b/c"); err != nil {
+		return false
+	}
+	return true
+}
+
 // NewPathMatcher builds a matcher from the default globs (when useDefaults is
 // true) followed by the caller's ignore lines (in file order, so a user
 // `!negation` can re-include a default-pruned path — D-07, Pitfall 2). Blank
-// lines and `#` comments are skipped; a leading `!` marks a negation. Every
-// glob is validated with doublestar.ValidatePattern; the first malformed pattern
-// returns a descriptive error (Security V5 — fail loud, never silently match).
+// lines and `#` comments are skipped; a leading `!` marks a negation. A
+// malformed USER pattern returns a descriptive error (Security V5 — fail loud).
+// A malformed shipped default (a Mimir bug, not user input) is skipped rather
+// than failing the scan.
 func NewPathMatcher(ignoreLines []string, useDefaults bool) (*PathMatcher, error) {
 	var pats []pattern
 	if useDefaults {
 		for _, g := range DefaultPathExcludes {
-			pats = append(pats, pattern{glob: g})
+			if validGlob(g) {
+				pats = append(pats, pattern{glob: g})
+			}
 		}
 	}
 	for _, raw := range ignoreLines {
@@ -68,7 +82,7 @@ func NewPathMatcher(ignoreLines []string, useDefaults bool) (*PathMatcher, error
 		if g == "" {
 			continue
 		}
-		if !doublestar.ValidatePattern(g) {
+		if !validGlob(g) {
 			return nil, fmt.Errorf("invalid .mimirignore glob pattern %q", g)
 		}
 		pats = append(pats, pattern{glob: g, negate: neg})
@@ -107,18 +121,16 @@ func LoadMimirIgnore(root string) ([]string, error) {
 }
 
 // Excluded reports whether the given path should be PRUNED (skipped without
-// opening). The caller must pass a repo-relative, forward-slash path; Excluded
-// also defensively normalizes backslashes (Pitfall 1). Patterns apply in order;
-// the last matching pattern wins, so a `!negation` after a positive match
-// re-includes the path (Pitfall 2). For directories, a glob targeting the
-// subtree (e.g. `vendor/**`) also prunes the directory itself so WalkDir can
-// SkipDir the whole subtree.
+// opening). The caller passes a repo-relative path; Excluded normalizes
+// backslashes to forward slashes (Pitfall 1 — filepath.ToSlash is a no-op on
+// Linux). Patterns apply in order; the last matching pattern wins, so a
+// `!negation` after a positive match re-includes the path (Pitfall 2). For
+// directories, a glob targeting the subtree (e.g. `vendor/**`) also prunes the
+// directory itself so WalkDir can SkipDir the whole subtree.
 func (m *PathMatcher) Excluded(relPath string, isDir bool) bool {
 	if m == nil {
 		return false
 	}
-	// Normalize backslashes unconditionally: filepath.ToSlash is a no-op on
-	// non-Windows, so force the replace for cross-platform glob stability (Pitfall 1).
 	rel := strings.TrimPrefix(filepath.ToSlash(strings.ReplaceAll(relPath, `\`, "/")), "./")
 	if rel == "" || rel == "." {
 		return false

@@ -64,7 +64,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Foundation: add doublestar/v4 dep, internal/suppress package shell, Finding (D-12) + Stats (D-11/D-13) fields, dirty fixture repo + criterion-4 variants
+- [x] 02-01-PLAN.md — Foundation: add doublestar/v4 dep, internal/suppress package shell, Finding (D-12) + Stats (D-11/D-13) fields, dirty fixture repo + criterion-4 variants
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -124,6 +124,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
-| 2. False-Positive Control (Suppression + Baseline) | 0/4 | Not started | - |
+| 2. False-Positive Control (Suppression + Baseline) | 1/4 | In Progress|  |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

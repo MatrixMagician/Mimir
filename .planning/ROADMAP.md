@@ -68,7 +68,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 02-02-PLAN.md — Inline-ignore slice (SUP-01): mimir:ignore[:rule-id] parser, scanFile wiring, --verbose paste-ready hint, exit-code-safe
+- [x] 02-02-PLAN.md — Inline-ignore slice (SUP-01): mimir:ignore[:rule-id] parser, scanFile wiring, --verbose paste-ready hint, exit-code-safe
 
 **Wave 3** *(blocked on Wave 2 — shares scanner.go/scan.go)*
 
@@ -124,6 +124,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
-| 2. False-Positive Control (Suppression + Baseline) | 1/4 | In Progress|  |
+| 2. False-Positive Control (Suppression + Baseline) | 2/4 | In Progress|  |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

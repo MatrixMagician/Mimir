@@ -107,6 +107,29 @@ func TestWriteHumanRedactionInFindingLine(t *testing.T) {
 	assert.False(t, strings.Contains(out, rawSecret), "raw secret should not appear in output")
 }
 
+// TestWriteHumanSanitizesUntrustedGitMetadata verifies that attacker-influenced
+// git metadata and diff-sourced paths can never inject terminal-control bytes
+// (ANSI escapes, carriage returns) into human output (terminal-escape /
+// log-injection, T-03-03). A history finding's File, CommitSHA, CommitAuthor,
+// and CommitDate all originate from untrusted repo content.
+func TestWriteHumanSanitizesUntrustedGitMetadata(t *testing.T) {
+	color.NoColor = true
+	f := finding.New("aws-access-token", "evil\x1b[31m\rpath.go", 7, 3, "AKIAFAKEKEYABCDE2345", "ctx", false)
+	f.CommitSHA = "abc1234\x1b]0;pwned\x07def"
+	f.CommitAuthor = "Attacker\x1b[2J\x1b[H\r<injected>"
+	f.CommitDate = "2026-01-01T00:00:00Z\x1b[5m"
+	var buf bytes.Buffer
+	output.WriteHuman(&buf, []finding.Finding{f}, makeStats(1, time.Millisecond), true, false, true) // verbose=true
+	out := buf.String()
+	// No raw ESC, BEL, or CR may survive to the terminal.
+	assert.NotContains(t, out, "\x1b", "ESC must be stripped from git metadata")
+	assert.NotContains(t, out, "\x07", "BEL must be stripped from git metadata")
+	assert.NotContains(t, out, "\r", "CR must be stripped from git metadata")
+	// The benign textual parts still render (sanitization replaces only controls).
+	assert.Contains(t, out, "abc1234", "short SHA prefix still shown")
+	assert.Contains(t, out, "Attacker", "author name still shown (minus control bytes)")
+}
+
 // ---- Plan 01-03 JSON tests ----
 
 // TestWriteJSONSchema verifies that WriteJSON produces valid JSON with the

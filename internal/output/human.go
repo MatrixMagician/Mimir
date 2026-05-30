@@ -4,6 +4,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -62,10 +63,10 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		// byte-identical to the Phase 1 format (OUT-02 stability).
 		if f.CommitSHA != "" {
 			fmt.Fprintf(w, "%s:%d:%d @ %s  %s  %s\n",
-				f.File, f.Line, f.Column, shortSHA(f.CommitSHA), ruleStr, f.Secret)
+				sanitizeForTTY(f.File), f.Line, f.Column, sanitizeForTTY(shortSHA(f.CommitSHA)), ruleStr, sanitizeForTTY(f.Secret))
 		} else {
 			fmt.Fprintf(w, "%s:%d:%d  %s  %s\n",
-				f.File, f.Line, f.Column, ruleStr, f.Secret)
+				sanitizeForTTY(f.File), f.Line, f.Column, ruleStr, sanitizeForTTY(f.Secret))
 		}
 
 		// --verbose surfaces the paste-ready suppression hint + fingerprint
@@ -73,9 +74,10 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		// findings it additionally surfaces the full commit author and date.
 		if verbose {
 			if f.CommitSHA != "" && (f.CommitAuthor != "" || f.CommitDate != "") {
-				fmt.Fprintf(w, "    ↳ commit %s by %s on %s\n", f.CommitSHA, f.CommitAuthor, f.CommitDate)
+				fmt.Fprintf(w, "    ↳ commit %s by %s on %s\n",
+					sanitizeForTTY(f.CommitSHA), sanitizeForTTY(f.CommitAuthor), sanitizeForTTY(f.CommitDate))
 			}
-			fmt.Fprintf(w, "    ↳ suppress: add `// mimir:ignore` on this line · fingerprint: %s\n", f.Fingerprint)
+			fmt.Fprintf(w, "    ↳ suppress: add `// mimir:ignore` on this line · fingerprint: %s\n", sanitizeForTTY(f.Fingerprint))
 		}
 	}
 
@@ -90,7 +92,7 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		}
 		for _, f := range suppressed {
 			fmt.Fprintf(w, "  ○ %s:%d:%d  [%s] (%s)  %s\n",
-				f.File, f.Line, f.Column, f.RuleID, f.SuppressionReason, f.Secret)
+				sanitizeForTTY(f.File), f.Line, f.Column, f.RuleID, f.SuppressionReason, sanitizeForTTY(f.Secret))
 		}
 	}
 
@@ -123,6 +125,47 @@ func shortSHA(sha string) string {
 		return sha
 	}
 	return sha[:7]
+}
+
+// sanitizeForTTY strips terminal-control bytes from strings that originate from
+// untrusted repository data — git commit metadata (author, SHA, date),
+// diff-sourced file paths, and the redacted secret snippet — before they are
+// written to a terminal. A crafted commit author name, file path, or matched
+// line can embed ANSI escape sequences or carriage returns; emitting them raw
+// would let scanned repo content rewrite the user's terminal or forge output
+// (terminal-escape / log-injection, T-03-03). ESC, DEL, and C0 control chars
+// (except tab) are replaced with the Unicode replacement rune. The result is
+// length-capped to bound oversized single-line ANSI payloads. For well-formed
+// input (no control bytes, under the cap) the string is returned unchanged, so
+// legitimate paths and snippets stay byte-identical (OUT-02 / D-10 stability).
+func sanitizeForTTY(s string) string {
+	const maxLen = 256
+	hasControl := false
+	for _, r := range s {
+		if r == 0x1b || r == 0x7f || (r < 0x20 && r != '\t') {
+			hasControl = true
+			break
+		}
+	}
+	if !hasControl && len(s) <= maxLen {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	n := 0
+	for _, r := range s {
+		if n >= maxLen {
+			b.WriteString("…")
+			break
+		}
+		if r == 0x1b || r == 0x7f || (r < 0x20 && r != '\t') {
+			b.WriteRune('�')
+		} else {
+			b.WriteRune(r)
+		}
+		n++
+	}
+	return b.String()
 }
 
 // suppressInlineReason mirrors suppress.InlineReason without importing the

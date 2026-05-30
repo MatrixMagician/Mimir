@@ -19,40 +19,41 @@ import (
 const fixtureSecret = "AKIAFAKEKEYABCDE2345"
 
 // newTestEngine builds a real detection engine from the embedded default
-// config, mirroring scanner_test.go's newTestScanner pattern.
-func newTestEngine(t *testing.T) *detect.Engine {
-	t.Helper()
+// config, mirroring scanner_test.go's newTestScanner pattern. It accepts
+// testing.TB so both tests and benchmarks can use it.
+func newTestEngine(tb testing.TB) *detect.Engine {
+	tb.Helper()
 	cfg, err := config.LoadDefault()
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	return detect.NewEngine(cfg)
 }
 
-// git runs a git command in dir and fails the test on error.
-func git(t *testing.T, dir string, args ...string) {
-	t.Helper()
+// git runs a git command in dir and fails the test/benchmark on error.
+func git(tb testing.TB, dir string, args ...string) {
+	tb.Helper()
 	full := append([]string{"-C", dir}, args...)
 	cmd := exec.Command("git", full...)
 	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "git %v failed: %s", args, string(out))
+	require.NoErrorf(tb, err, "git %v failed: %s", args, string(out))
 }
 
 // initRepo creates a temp git repo with deterministic identity/config so commit
 // metadata is stable and no global git config interferes.
-func initRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	git(t, dir, "init", "-q", "-b", "main")
-	git(t, dir, "config", "user.email", "test@mimir.example")
-	git(t, dir, "config", "user.name", "Mimir Test")
-	git(t, dir, "config", "commit.gpgsign", "false")
+func initRepo(tb testing.TB) string {
+	tb.Helper()
+	dir := tb.TempDir()
+	git(tb, dir, "init", "-q", "-b", "main")
+	git(tb, dir, "config", "user.email", "test@mimir.example")
+	git(tb, dir, "config", "user.name", "Mimir Test")
+	git(tb, dir, "config", "commit.gpgsign", "false")
 	return dir
 }
 
 // writeFile writes content to name within dir.
-func writeFile(t *testing.T, dir, name, content string) {
-	t.Helper()
+func writeFile(tb testing.TB, dir, name, content string) {
+	tb.Helper()
 	path := dir + "/" + name
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	require.NoError(tb, os.WriteFile(path, []byte(content), 0o600))
 }
 
 // newHistoryFixture builds a repo where a secret is added in commit 1 and the
@@ -137,16 +138,16 @@ func TestHistoryNonRepoFailsLoud(t *testing.T) {
 // (index vs HEAD) therefore contains the freshly staged line, which is what
 // ScanStaged scans (criterion 3). The first commit gives `git diff --staged` a
 // HEAD to diff against.
-func newStagedFixture(t *testing.T, name, content string) string {
-	t.Helper()
-	dir := initRepo(t)
+func newStagedFixture(tb testing.TB, name, content string) string {
+	tb.Helper()
+	dir := initRepo(tb)
 	// An initial commit so --staged diffs against HEAD rather than the empty tree.
-	writeFile(t, dir, ".keep", "init\n")
-	git(t, dir, "add", ".keep")
-	git(t, dir, "commit", "-q", "-m", "init")
+	writeFile(tb, dir, ".keep", "init\n")
+	git(tb, dir, "add", ".keep")
+	git(tb, dir, "commit", "-q", "-m", "init")
 	// Stage the secret-bearing file without committing it.
-	writeFile(t, dir, name, content)
-	git(t, dir, "add", name)
+	writeFile(tb, dir, name, content)
+	git(tb, dir, "add", name)
 	return dir
 }
 

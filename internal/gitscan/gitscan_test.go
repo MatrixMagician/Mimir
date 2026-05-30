@@ -76,7 +76,7 @@ func TestHistoryDeletedSecret(t *testing.T) {
 	dir := newHistoryFixture(t)
 	eng := newTestEngine(t)
 
-	findings, stats, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
+	findings, _, stats, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, findings, "expected the added-then-deleted secret to be found")
 
@@ -109,7 +109,7 @@ func TestHistoryDedup(t *testing.T) {
 	git(t, dir, "commit", "-q", "-m", "reword secret line")
 
 	eng := newTestEngine(t)
-	findings, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
+	findings, _, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
 	require.NoError(t, err)
 
 	fps := map[string]int{}
@@ -129,7 +129,7 @@ func TestHistoryDedup(t *testing.T) {
 func TestHistoryNonRepoFailsLoud(t *testing.T) {
 	dir := t.TempDir() // plain dir, no git init
 	eng := newTestEngine(t)
-	_, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
+	_, _, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
 	require.Error(t, err, "scanning a non-git directory must fail loud, not exit clean")
 }
 
@@ -158,7 +158,7 @@ func TestStagedSecret(t *testing.T) {
 	dir := newStagedFixture(t, "leak.txt", "aws_access_key_id = "+fixtureSecret+"\n")
 	eng := newTestEngine(t)
 
-	findings, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
+	findings, _, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, findings, "expected the staged secret to be found")
 
@@ -175,6 +175,55 @@ func TestStagedSecret(t *testing.T) {
 	assert.True(t, hit, "expected an aws-access-token finding in the staged diff")
 }
 
+// TestHistoryRawSideChannel asserts ScanHistory threads the fingerprint→raw
+// side channel out: a secret added then deleted in history is still resolvable
+// to its exact raw value, keyed by the surviving finding's fingerprint, while
+// the raw value never appears on the redacted Finding.
+func TestHistoryRawSideChannel(t *testing.T) {
+	dir := newHistoryFixture(t)
+	eng := newTestEngine(t)
+
+	findings, raw, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+	require.NotNil(t, raw, "raw side channel must be non-nil")
+
+	var hit bool
+	for _, f := range findings {
+		if f.RuleID == "aws-access-token" {
+			hit = true
+			gotRaw, ok := raw[f.Fingerprint]
+			require.Truef(t, ok, "raw map must resolve fingerprint %s", f.Fingerprint)
+			assert.Equal(t, fixtureSecret, gotRaw, "raw map must carry the exact deleted secret")
+			assert.NotContains(t, f.Secret, fixtureSecret, "raw secret must be redacted on Finding")
+		}
+	}
+	assert.True(t, hit)
+}
+
+// TestStagedRawSideChannel asserts ScanStaged threads the fingerprint→raw side
+// channel out for a staged secret, keyed by the staged finding's fingerprint.
+func TestStagedRawSideChannel(t *testing.T) {
+	dir := newStagedFixture(t, "leak.txt", "aws_access_key_id = "+fixtureSecret+"\n")
+	eng := newTestEngine(t)
+
+	findings, raw, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+	require.NotNil(t, raw, "raw side channel must be non-nil")
+
+	var hit bool
+	for _, f := range findings {
+		if f.RuleID == "aws-access-token" {
+			hit = true
+			gotRaw, ok := raw[f.Fingerprint]
+			require.Truef(t, ok, "raw map must resolve fingerprint %s", f.Fingerprint)
+			assert.Equal(t, fixtureSecret, gotRaw, "raw map must carry the exact staged secret")
+		}
+	}
+	assert.True(t, hit)
+}
+
 // TestStagedInlineIgnore asserts a staged secret whose line carries
 // `// mimir:ignore` yields ZERO findings — the inline-ignore directive is honored
 // on staged diff lines exactly as in the working-tree scanner (criterion 3,
@@ -184,7 +233,7 @@ func TestStagedInlineIgnore(t *testing.T) {
 		"key := \""+fixtureSecret+"\" // mimir:ignore\n")
 	eng := newTestEngine(t)
 
-	findings, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
+	findings, _, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
 	require.NoError(t, err)
 	assert.Empty(t, findings, "an inline-ignored staged secret must yield zero findings")
 }
@@ -194,6 +243,6 @@ func TestStagedInlineIgnore(t *testing.T) {
 func TestStagedNonRepoFailsLoud(t *testing.T) {
 	dir := t.TempDir() // plain dir, no git init
 	eng := newTestEngine(t)
-	_, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
+	_, _, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
 	require.Error(t, err, "scanning a non-git directory must fail loud, not exit clean")
 }

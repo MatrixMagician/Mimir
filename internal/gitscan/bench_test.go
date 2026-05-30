@@ -135,7 +135,7 @@ func BenchmarkHistoryMem(b *testing.B) {
 			var peakHeap uint64
 			for i := 0; i < b.N; i++ {
 				d := heapDelta(func() {
-					_, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
+					_, _, _, err := gitscan.ScanHistory(context.Background(), eng, dir, false)
 					if err != nil {
 						b.Fatalf("ScanHistory(%s): %v", sz.name, err)
 					}
@@ -182,7 +182,7 @@ func BenchmarkStaged(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
+		_, _, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
 		if err != nil {
 			b.Fatalf("ScanStaged: %v", err)
 		}

@@ -166,6 +166,34 @@ func TestCommitMetaOmitempty(t *testing.T) {
 	})
 }
 
+// TestVerificationOmittedByDefault verifies the pointer + omitempty discipline on
+// the new Verification field (mirrors TestCommitMetaOmitempty): a default finding's
+// JSON omits "verification" entirely, while a finding with Verification set
+// serializes the nested object. This preserves OUT-02 byte-identical output for
+// non-verify scans.
+func TestVerificationOmittedByDefault(t *testing.T) {
+	const rawSecret = "AKIAFAKEKEYABCDE2345"
+
+	t.Run("default finding omits verification field", func(t *testing.T) {
+		f := finding.New("aws-access-token", "src/config.go", 5, 10, rawSecret, "ctx", false)
+		b, err := json.Marshal(f)
+		require.NoError(t, err)
+		js := string(b)
+		assert.NotContains(t, js, "verification", "default-scan JSON must omit verification")
+	})
+
+	t.Run("finding includes verification when set", func(t *testing.T) {
+		f := finding.New("aws-access-token", "src/config.go", 5, 10, rawSecret, "ctx", false)
+		f.Verification = &finding.Verification{Status: "active", Provider: "aws"}
+		b, err := json.Marshal(f)
+		require.NoError(t, err)
+		js := string(b)
+		assert.Contains(t, js, "verification", "verify JSON must include verification when set")
+		assert.Contains(t, js, "active", "verification status must serialize")
+		assert.Contains(t, js, "aws", "verification provider must serialize")
+	})
+}
+
 // TestNoRawSecretInAnyField is the security regression test: reflect-inspect
 // all exported string fields of Finding to assert no raw secret value escaped.
 func TestNoRawSecretInAnyField(t *testing.T) {

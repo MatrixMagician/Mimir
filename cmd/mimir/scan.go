@@ -109,9 +109,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	var stats scanner.Stats
 	switch {
 	case gitMode:
-		findings, stats, err = gitscan.ScanHistory(cmd.Context(), engine, scanRoot, showSuppressed)
+		// Raw side-channel discarded here; Plan 04-03 consumes it for --verify.
+		findings, _, stats, err = gitscan.ScanHistory(cmd.Context(), engine, scanRoot, showSuppressed)
 	case stagedMode:
-		findings, stats, err = gitscan.ScanStaged(cmd.Context(), engine, scanRoot, showSuppressed)
+		// Raw side-channel discarded here; Plan 04-03 consumes it for --verify.
+		findings, _, stats, err = gitscan.ScanStaged(cmd.Context(), engine, scanRoot, showSuppressed)
 	default:
 		// The raw side-channel map is discarded here (Plan 04-03 consumes it to
 		// drive opt-in live verification); for now we only keep the build green.

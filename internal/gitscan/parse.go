@@ -23,14 +23,17 @@ import (
 //
 // showSuppressed mirrors the scanner: when false an inline-ignored finding is
 // dropped (but still counted); when true it is kept and annotated.
-func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]finding.Finding, map[string]int, error) {
+func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]finding.Finding, map[string]int, map[string]string, error) {
 	files, err := gitdiff.Parse(r)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var out []finding.Finding
 	suppressed := map[string]int{}
+	// Fingerprint→raw side channel for opt-in live verification. Written only by
+	// engine.ScanLine, never stored on a Finding or serialized.
+	raw := map[string]string{}
 
 	for f := range files {
 		for _, tf := range f.TextFragments {
@@ -49,7 +52,7 @@ func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]find
 					// Line.Line; strip it so column math and regex anchors match
 					// the working-tree scanner's behavior.
 					line := strings.TrimSuffix(l.Line, "\n")
-					lineFindings := engine.ScanLine(line, f.NewName, lineNum)
+					lineFindings := engine.ScanLine(line, f.NewName, lineNum, raw)
 					// Inline-ignore suppression (SUP-01/D-12) — COPY of the
 					// scanner.go scanFile block: the diff-added line IS the
 					// source line, so the identical directive check applies.
@@ -75,7 +78,7 @@ func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]find
 		}
 	}
 
-	return out, suppressed, nil
+	return out, suppressed, raw, nil
 }
 
 // attachCommitMeta copies D-08 commit provenance from a patch header onto a

@@ -26,28 +26,32 @@ import (
 // absent or repoRoot is not a git repository (Pitfall 4: never silently report
 // "clean"). The engine is reused as-is (stateless, goroutine-safe); no new
 // engine is constructed here.
-func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, scanner.Stats, error) {
+// The returned raw map (fingerprint→raw secret) is the off-struct side channel
+// for opt-in live verification; it is keyed by the same fingerprint that survives
+// dedup, is NEVER stored on a Finding or serialized, and is non-nil so callers
+// may range it safely.
+func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
 	cmd, stdout, err := startGit(ctx, historyArgs(repoRoot))
 	if err != nil {
-		return nil, scanner.Stats{}, err
+		return nil, nil, scanner.Stats{}, err
 	}
 	// Always reap the git process. parsePatch drains stdout fully (ranging the
 	// go-gitdiff channel to completion), so Wait will not block on an unread
 	// pipe (Pitfall 2).
 	defer func() { _ = cmd.Wait() }()
 
-	findings, suppressed, parseErr := parsePatch(stdout, engine, showSuppressed)
+	findings, suppressed, raw, parseErr := parsePatch(stdout, engine, showSuppressed)
 	if parseErr != nil {
 		// Reap before returning so a parse failure does not leak the process.
 		_ = cmd.Wait()
-		return nil, scanner.Stats{}, fmt.Errorf("parsing git history patch: %w", parseErr)
+		return nil, nil, scanner.Stats{}, fmt.Errorf("parsing git history patch: %w", parseErr)
 	}
 
 	// Fail loud on a non-zero git exit (e.g. repoRoot is not a git repo). We must
 	// Wait() explicitly here to read the exit status; the deferred Wait then
 	// becomes a harmless no-op.
 	if waitErr := cmd.Wait(); waitErr != nil {
-		return nil, scanner.Stats{}, fmt.Errorf("git history scan failed (is %q a git repository?): %w", repoRoot, waitErr)
+		return nil, nil, scanner.Stats{}, fmt.Errorf("git history scan failed (is %q a git repository?): %w", repoRoot, waitErr)
 	}
 
 	deduped := dedupByFingerprint(findings)
@@ -68,7 +72,7 @@ func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, sh
 		FilesScanned: len(deduped),
 		Suppressed:   suppressed,
 	}
-	return deduped, stats, nil
+	return deduped, raw, stats, nil
 }
 
 // ScanStaged scans the staged diff of repoRoot (`git diff --staged`) for secrets
@@ -86,24 +90,27 @@ func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, sh
 //
 // Like ScanHistory it fails loud (non-nil error → exit 2) when git is absent or
 // repoRoot is not a git repository (Pitfall 4), never silently reporting "clean".
-func ScanStaged(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, scanner.Stats, error) {
+// The returned raw map (fingerprint→raw secret) is the off-struct side channel
+// for opt-in live verification; it is keyed by finding fingerprint, NEVER stored
+// on a Finding or serialized, and non-nil so callers may range it safely.
+func ScanStaged(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
 	cmd, stdout, err := startGit(ctx, stagedArgs(repoRoot))
 	if err != nil {
-		return nil, scanner.Stats{}, err
+		return nil, nil, scanner.Stats{}, err
 	}
 	// Always reap the git process. parsePatch drains stdout fully, so Wait will
 	// not block on an unread pipe (Pitfall 2).
 	defer func() { _ = cmd.Wait() }()
 
-	findings, suppressed, parseErr := parsePatch(stdout, engine, showSuppressed)
+	findings, suppressed, raw, parseErr := parsePatch(stdout, engine, showSuppressed)
 	if parseErr != nil {
 		_ = cmd.Wait()
-		return nil, scanner.Stats{}, fmt.Errorf("parsing staged diff patch: %w", parseErr)
+		return nil, nil, scanner.Stats{}, fmt.Errorf("parsing staged diff patch: %w", parseErr)
 	}
 
 	// Fail loud on a non-zero git exit (e.g. repoRoot is not a git repo).
 	if waitErr := cmd.Wait(); waitErr != nil {
-		return nil, scanner.Stats{}, fmt.Errorf("git staged scan failed (is %q a git repository?): %w", repoRoot, waitErr)
+		return nil, nil, scanner.Stats{}, fmt.Errorf("git staged scan failed (is %q a git repository?): %w", repoRoot, waitErr)
 	}
 
 	deduped := dedupByFingerprint(findings)
@@ -123,7 +130,7 @@ func ScanStaged(ctx context.Context, engine *detect.Engine, repoRoot string, sho
 		FilesScanned: len(deduped),
 		Suppressed:   suppressed,
 	}
-	return deduped, stats, nil
+	return deduped, raw, stats, nil
 }
 
 // dedupByFingerprint collapses occurrences of the same secret (same content

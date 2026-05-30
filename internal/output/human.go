@@ -138,11 +138,19 @@ func shortSHA(sha string) string {
 // length-capped to bound oversized single-line ANSI payloads. For well-formed
 // input (no control bytes, under the cap) the string is returned unchanged, so
 // legitimate paths and snippets stay byte-identical (OUT-02 / D-10 stability).
+//
+// U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are stripped too:
+// many terminals and log viewers treat them as line breaks, so leaving them in
+// would reopen the log-injection vector through a crafted author name or path
+// (WR-04).
 func sanitizeForTTY(s string) string {
 	const maxLen = 256
+	isUnsafe := func(r rune) bool {
+		return r == 0x1b || r == 0x7f || (r < 0x20 && r != '\t') || r == '\u2028' || r == '\u2029'
+	}
 	hasControl := false
 	for _, r := range s {
-		if r == 0x1b || r == 0x7f || (r < 0x20 && r != '\t') {
+		if isUnsafe(r) {
 			hasControl = true
 			break
 		}
@@ -158,7 +166,7 @@ func sanitizeForTTY(s string) string {
 			b.WriteString("…")
 			break
 		}
-		if r == 0x1b || r == 0x7f || (r < 0x20 && r != '\t') {
+		if isUnsafe(r) {
 			b.WriteRune('�')
 		} else {
 			b.WriteRune(r)
@@ -166,19 +174,6 @@ func sanitizeForTTY(s string) string {
 		n++
 	}
 	return b.String()
-}
-
-// suppressInlineReason mirrors suppress.InlineReason without importing the
-// suppress package into the output layer (output stays a pure formatter).
-const suppressInlineReason = "inline-ignore"
-
-// uniqueFileCount returns the number of distinct file paths in findings.
-func uniqueFileCount(findings []finding.Finding) int {
-	seen := make(map[string]struct{}, len(findings))
-	for _, f := range findings {
-		seen[f.File] = struct{}{}
-	}
-	return len(seen)
 }
 
 // formatDuration formats a duration as a human-friendly string like "0.8s" or "1.2s".

@@ -144,6 +144,13 @@ func dedupByFingerprint(findings []finding.Finding) []finding.Finding {
 			// lexicographically thanks to RFC3339; an empty incoming date never
 			// displaces an existing one.
 			if f.CommitDate != "" && (out[pos].CommitDate == "" || f.CommitDate < out[pos].CommitDate) {
+				// Carry the earlier commit's LOCATION together with its provenance
+				// (WR-01): the printed "file:line @ sha" must take its line number
+				// and its SHA from the same commit, or the D-10 jump-link points at
+				// an unrelated line. git log -p is newest-first, so the first-seen
+				// occurrence's Line/Column belong to a later commit than this one.
+				out[pos].Line = f.Line
+				out[pos].Column = f.Column
 				out[pos].CommitSHA = f.CommitSHA
 				out[pos].CommitAuthor = f.CommitAuthor
 				out[pos].CommitDate = f.CommitDate

@@ -116,7 +116,7 @@ func TestWriteHumanSanitizesUntrustedGitMetadata(t *testing.T) {
 	color.NoColor = true
 	f := finding.New("aws-access-token", "evil\x1b[31m\rpath.go", 7, 3, "AKIAFAKEKEYABCDE2345", "ctx", false)
 	f.CommitSHA = "abc1234\x1b]0;pwned\x07def"
-	f.CommitAuthor = "Attacker\x1b[2J\x1b[H\r<injected>"
+	f.CommitAuthor = "Attacker\x1b[2J\x1b[H\r\u2028\u2029<injected>"
 	f.CommitDate = "2026-01-01T00:00:00Z\x1b[5m"
 	var buf bytes.Buffer
 	output.WriteHuman(&buf, []finding.Finding{f}, makeStats(1, time.Millisecond), true, false, true) // verbose=true
@@ -125,6 +125,8 @@ func TestWriteHumanSanitizesUntrustedGitMetadata(t *testing.T) {
 	assert.NotContains(t, out, "\x1b", "ESC must be stripped from git metadata")
 	assert.NotContains(t, out, "\x07", "BEL must be stripped from git metadata")
 	assert.NotContains(t, out, "\r", "CR must be stripped from git metadata")
+	assert.NotContains(t, out, "\u2028", "U+2028 line separator must be stripped (WR-04)")
+	assert.NotContains(t, out, "\u2029", "U+2029 paragraph separator must be stripped (WR-04)")
 	// The benign textual parts still render (sanitization replaces only controls).
 	assert.Contains(t, out, "abc1234", "short SHA prefix still shown")
 	assert.Contains(t, out, "Attacker", "author name still shown (minus control bytes)")

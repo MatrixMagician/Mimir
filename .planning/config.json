@@ -1,5 +1,5 @@
 {
-  "model_profile": "quality",
+  "model_profile": "adaptive",
   "commit_docs": true,
   "parallelization": true,
   "search_gitignored": false,
@@ -10,7 +10,8 @@
     "branching_strategy": "milestone",
     "phase_branch_template": "gsd/phase-{phase}-{slug}",
     "milestone_branch_template": "gsd/{milestone}-{slug}",
-    "quick_branch_template": null
+    "quick_branch_template": null,
+    "create_tag": true
   },
   "workflow": {
     "research": true,
@@ -27,12 +28,14 @@
     "discuss_mode": "discuss",
     "skip_discuss": false,
     "code_review": true,
-    "code_review_depth": "standard",
+    "code_review_depth": "deep",
     "pattern_mapper": true,
     "ai_integration_phase": true,
     "tdd_mode": false,
     "ui_review": true,
-    "use_worktrees": true
+    "use_worktrees": true,
+    "_auto_chain_active": false,
+    "auto_prune_state": true
   },
   "ship": {
     "pr_body_sections": []
@@ -47,12 +50,20 @@
   "resolve_model_ids": "omit",
   "mode": "yolo",
   "granularity": "coarse",
-  "branching_strategy": "milestone",
-  "quick_branch_template": null,
   "intel": {
     "enabled": true
   },
   "graphify": {
-    "enabled": true
+    "enabled": true,
+    "auto_update": true,
+    "build_timeout": 600
+  },
+  "context_window": 1000000,
+  "model_profile_overrides": {
+    "claude": {
+      "opus": "claude-opus-4-8",
+      "sonnet": "claude-sonnet-4-6",
+      "haiku": "claude-haiku-4-5"
+    }
   }
 }

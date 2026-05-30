@@ -1,0 +1,10 @@
+[extend]
+use_default = true
+disabled_rules = []
+
+[[rules]]
+id = "my-custom-rule"
+description = "Custom internal API key"
+regex = 'myco_[a-zA-Z0-9]{20}'
+entropy = 3.0
+keywords = ["myco_"]

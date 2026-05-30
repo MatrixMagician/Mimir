@@ -1,0 +1,12 @@
+# Mimir IS a secret scanner. Its test fixtures and research notes intentionally
+# contain realistic secret patterns (AWS keys, GitHub/Slack/Stripe tokens, PEM
+# keys, connection strings) so the scanner's own rules can be tested against
+# authentic inputs. Exclude these paths from semgrep so security tooling does
+# not flag the project's REQUIRED test data — and so contributors are not
+# tempted to weaken fixtures to evade a scanner that should never have scanned
+# them in the first place.
+testdata/
+.planning/
+
+# Test files frequently embed fixture secret literals inline for table tests.
+*_test.go

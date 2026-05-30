@@ -1,6 +1,7 @@
 package finding_test
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -116,6 +117,52 @@ func TestFingerprint(t *testing.T) {
 		// Windows-style path with backslashes should be normalized to forward slashes
 		f := finding.New("aws-access-token", `src\config.go`, 5, 10, rawSecret, "ctx", false)
 		assert.True(t, strings.HasPrefix(f.Fingerprint, "src/config.go:"), "path must use forward slash in fingerprint, got: %s", f.Fingerprint)
+	})
+
+	// D-09: commit metadata must NOT enter computeFingerprint. The same secret at
+	// the same path/rule must hash identically whether or not CommitSHA is set —
+	// this is what makes cross-mode baseline/dedup work (history + working-tree
+	// occurrences of one leaked secret share a single fingerprint).
+	t.Run("commit metadata does not change the fingerprint (D-09)", func(t *testing.T) {
+		base := finding.New("aws-access-token", "src/config.go", 5, 10, rawSecret, "ctx", false)
+		withCommit := finding.New("aws-access-token", "src/config.go", 5, 10, rawSecret, "ctx", false)
+		withCommit.CommitSHA = "abc1234def5678901234567890abcdef12345678"
+		withCommit.CommitAuthor = "Alice Example"
+		withCommit.CommitDate = "2026-05-30T12:00:00Z"
+		assert.Equal(t, base.Fingerprint, withCommit.Fingerprint,
+			"setting commit metadata must not alter the content-based fingerprint")
+	})
+}
+
+// TestCommitMetaOmitempty verifies the D-08 commit fields are omitempty: a
+// default (working-tree/staged) finding's JSON omits commit_sha entirely, while
+// a history finding with CommitSHA set serializes it. This preserves OUT-02
+// byte-identical output for non-history scans.
+func TestCommitMetaOmitempty(t *testing.T) {
+	const rawSecret = "AKIAFAKEKEYABCDE2345"
+
+	t.Run("default finding omits commit fields", func(t *testing.T) {
+		f := finding.New("aws-access-token", "src/config.go", 5, 10, rawSecret, "ctx", false)
+		b, err := json.Marshal(f)
+		require.NoError(t, err)
+		js := string(b)
+		assert.NotContains(t, js, "commit_sha", "default-scan JSON must omit commit_sha")
+		assert.NotContains(t, js, "commit_author", "default-scan JSON must omit commit_author")
+		assert.NotContains(t, js, "commit_date", "default-scan JSON must omit commit_date")
+	})
+
+	t.Run("history finding includes commit fields when set", func(t *testing.T) {
+		f := finding.New("aws-access-token", "src/config.go", 5, 10, rawSecret, "ctx", false)
+		f.CommitSHA = "abc1234def5678901234567890abcdef12345678"
+		f.CommitAuthor = "Alice Example"
+		f.CommitDate = "2026-05-30T12:00:00Z"
+		b, err := json.Marshal(f)
+		require.NoError(t, err)
+		js := string(b)
+		assert.Contains(t, js, "commit_sha", "history JSON must include commit_sha when set")
+		assert.Contains(t, js, "abc1234def5678901234567890abcdef12345678")
+		assert.Contains(t, js, "commit_author")
+		assert.Contains(t, js, "commit_date")
 	})
 }
 

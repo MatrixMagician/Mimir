@@ -42,6 +42,20 @@ type Finding struct {
 	// secret, preserving the redact-at-boundary invariant above.
 	Suppressed        bool   `json:"suppressed,omitempty"`
 	SuppressionReason string `json:"suppression_reason,omitempty"`
+
+	// CommitSHA, CommitAuthor, and CommitDate (D-08) carry git provenance for
+	// findings sourced from history scans (mimir scan --git). They are populated
+	// by internal/gitscan AFTER New() returns — never inside New() and never by
+	// computeFingerprint (D-09), so the fingerprint stays content-based and
+	// commit-independent (the same secret across many commits shares one
+	// fingerprint). All three are omitempty: working-tree and staged findings
+	// leave them empty, keeping the Phase 1 OUT-02 JSON schema byte-identical for
+	// non-history scans. They carry only non-secret git metadata (a commit hash,
+	// an author name, and an RFC3339 date) — never a raw secret, preserving the
+	// redact-at-boundary invariant above.
+	CommitSHA    string `json:"commit_sha,omitempty"`
+	CommitAuthor string `json:"commit_author,omitempty"`
+	CommitDate   string `json:"commit_date,omitempty"` // RFC3339 from PatchHeader.AuthorDate
 }
 
 // minVisibleLen is the D-05 guardrail threshold: secrets shorter than this

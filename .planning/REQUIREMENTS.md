@@ -19,15 +19,15 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **SCAN-01**: User can scan the working-tree files of a repo/directory
 - [x] **SCAN-02**: User can scan `.env` and config files (yaml/json/etc.) for secrets
-- [ ] **SCAN-03**: User can scan a repo's git history (past commits), including secrets later deleted
-- [ ] **SCAN-04**: User can scan only staged changes (`git diff --cached`) for the pre-commit use case
+- [x] **SCAN-03**: User can scan a repo's git history (past commits), including secrets later deleted
+- [x] **SCAN-04**: User can scan only staged changes (`git diff --cached`) for the pre-commit use case
 - [x] **SCAN-05**: Scanning skips binary and oversized files and the `.git` directory, with a configurable max-file-size cap
 
 ### Interfaces
 
 - [x] **IFACE-01**: User can run Mimir as a CLI (`mimir scan ./repo`) and read results in the terminal
 - [x] **IFACE-02**: Mimir returns CI-friendly exit codes (0 = clean, 1 = findings, 2 = error), with an `--exit-zero` soft mode
-- [ ] **IFACE-03**: User can install Mimir as a pre-commit hook that blocks commits containing secrets (staged-only, offline, fast, with an honest bypass)
+- [x] **IFACE-03**: User can install Mimir as a pre-commit hook that blocks commits containing secrets (staged-only, offline, fast, with an honest bypass)
 
 ### Output
 
@@ -116,9 +116,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SUP-02 | Phase 2 | Complete |
 | SUP-03 | Phase 2 | Complete |
 | SUP-04 | Phase 2 | Complete |
-| SCAN-03 | Phase 3 | Pending |
-| SCAN-04 | Phase 3 | Pending |
-| IFACE-03 | Phase 3 | Pending |
+| SCAN-03 | Phase 3 | Complete |
+| SCAN-04 | Phase 3 | Complete |
+| IFACE-03 | Phase 3 | Complete |
 | VERIFY-01 | Phase 4 | Pending |
 | VERIFY-02 | Phase 4 | Pending |
 | VERIFY-03 | Phase 4 | Pending |

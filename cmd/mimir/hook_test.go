@@ -86,6 +86,43 @@ func TestHookInstallRefusesOverwrite(t *testing.T) {
 	assert.Contains(t, string(got2), "mimir-managed-hook", "--force must install the managed hook")
 }
 
+// TestHookInstallRefusesSymlink hardens against symlink-follow / TOCTOU
+// (T-03-12): a pre-commit that is a symlink must be refused without --force and
+// must NEVER have the 0755 hook script written through it to the link target.
+// With --force the symlink is replaced by a regular managed file and the target
+// is left untouched.
+func TestHookInstallRefusesSymlink(t *testing.T) {
+	dir := hookRepo(t)
+	hp := hookPath(t, dir)
+	require.NoError(t, os.MkdirAll(filepath.Dir(hp), 0755))
+
+	// A sensitive file outside the hooks dir that a symlink-follow write would clobber.
+	target := filepath.Join(dir, "sensitive.txt")
+	const sentinel = "do-not-overwrite\n"
+	require.NoError(t, os.WriteFile(target, []byte(sentinel), 0600))
+	require.NoError(t, os.Symlink(target, hp))
+
+	// Without --force: refuse, and the link target must be byte-for-byte intact.
+	_, _, code := runMimir(t, "hook", "install", dir)
+	assert.NotEqual(t, 0, code, "install must refuse a symlinked pre-commit without --force")
+	got, err := os.ReadFile(target) //nolint:gosec
+	require.NoError(t, err)
+	assert.Equal(t, sentinel, string(got), "symlink target must not be written through")
+
+	// With --force: the symlink is replaced by a regular managed file; target intact.
+	_, stderr, code := runMimir(t, "hook", "install", "--force", dir)
+	require.Equalf(t, 0, code, "install --force must replace a symlinked hook, stderr=%s", stderr)
+	fi, err := os.Lstat(hp)
+	require.NoError(t, err)
+	assert.Zero(t, fi.Mode()&os.ModeSymlink, "hook must now be a regular file, not a symlink")
+	got2, err := os.ReadFile(target) //nolint:gosec
+	require.NoError(t, err)
+	assert.Equal(t, sentinel, string(got2), "symlink target must remain untouched after --force")
+	body, err := os.ReadFile(hp) //nolint:gosec
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "mimir-managed-hook", "--force must install the managed hook in place")
+}
+
 // TestHookUninstallManagedOnly removes a managed hook but refuses to delete a
 // foreign one (marker-line check).
 func TestHookUninstallManagedOnly(t *testing.T) {

@@ -115,20 +115,45 @@ func runHookInstall(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	hookPath := resolveHookPath(repoRoot)
 
-	// D-05: never silently clobber a foreign pre-commit hook.
-	if _, err := os.Stat(hookPath); err == nil {
-		if !isManaged(hookPath) && !force {
+	// D-05 + T-03-12: never silently clobber a foreign pre-commit hook, and never
+	// follow a symlink. Lstat (not Stat) inspects the entry itself, so a symlinked
+	// pre-commit is treated as a foreign hook and refused without --force — this
+	// also stops a symlink from redirecting our write to a file outside the repo.
+	if fi, err := os.Lstat(hookPath); err == nil {
+		isSymlink := fi.Mode()&os.ModeSymlink != 0
+		if (isSymlink || !isManaged(hookPath)) && !force {
 			return fmt.Errorf("a pre-commit hook already exists at %s — refusing to overwrite a non-mimir hook; re-run with --force to replace it", hookPath)
+		}
+		// With --force, drop any existing symlink first (os.Remove unlinks the
+		// symlink itself, never its target) so the O_NOFOLLOW create below cannot
+		// fail on, or write through, a pre-existing link.
+		if isSymlink {
+			if err := os.Remove(hookPath); err != nil {
+				return fmt.Errorf("removing existing symlinked pre-commit hook: %w", err)
+			}
 		}
 	}
 
-	if err := os.WriteFile(hookPath, []byte(managedHookScript), 0o755); err != nil { //nolint:gosec
+	// O_NOFOLLOW (unix) makes the create fail loud rather than write through a
+	// symlink raced in after the Lstat above (TOCTOU, T-03-12). Perms/exec bit are
+	// set on the file descriptor so no symlink can be substituted between write and
+	// chmod.
+	f, err := os.OpenFile(hookPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|oNoFollow, 0o755) //nolint:gosec
+	if err != nil {
 		return fmt.Errorf("writing pre-commit hook: %w", err)
 	}
-	// Ensure the exec bit survives an existing-file umask (WriteFile only applies
-	// perms when creating).
-	if err := os.Chmod(hookPath, 0o755); err != nil { //nolint:gosec
+	if _, err := f.WriteString(managedHookScript); err != nil {
+		f.Close()
+		return fmt.Errorf("writing pre-commit hook: %w", err)
+	}
+	// Re-assert the exec bit on a pre-existing (truncated) regular file, since
+	// O_CREATE only applies perms when the file is newly created.
+	if err := f.Chmod(0o755); err != nil {
+		f.Close()
 		return fmt.Errorf("setting hook executable: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("writing pre-commit hook: %w", err)
 	}
 	fmt.Printf("mimir: installed managed pre-commit hook at %s\n", hookPath)
 	fmt.Println("mimir: bypass once with `git commit --no-verify`, or persistently with `git config hooks.mimir false`")
@@ -139,9 +164,16 @@ func runHookUninstall(cmd *cobra.Command, args []string) error {
 	repoRoot := repoArg(args)
 	hookPath := resolveHookPath(repoRoot)
 
-	if _, err := os.Stat(hookPath); err != nil {
+	fi, err := os.Lstat(hookPath)
+	if err != nil {
 		fmt.Println("mimir: no pre-commit hook to remove")
 		return nil
+	}
+	// T-03-12: a symlinked pre-commit is not something mimir wrote (the installer
+	// only ever writes a regular file). Refuse it without following the link, so
+	// uninstall can never read "managed" through, or delete, an attacker's link.
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("the pre-commit hook at %s is a symlink — refusing to remove a hook mimir did not write", hookPath)
 	}
 	// Only remove Mimir's managed hook — never a user's foreign hook.
 	if !isManaged(hookPath) {

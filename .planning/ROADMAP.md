@@ -118,11 +118,20 @@ Plans:
   2. Mimir verifies AWS (STS GetCallerIdentity) and GitHub (GET /user) credentials via read-only calls and labels each finding active / inactive / unknown, treating a network failure as unknown (not inactive)
   3. A secret appearing in many findings is verified at most once (per-secret cache), rate-limit backoff is honored, a per-call timeout applies, and the secret value never appears in any log or error
 
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Side-channel raw-secret carry + Finding.Verification field: emit map[fingerprint]raw at ScanLine, thread through Scan/ScanHistory/ScanStaged
+
+**Wave 2** *(blocked on Wave 1 — uses finding.Verification)*
+
+- [ ] 04-02-PLAN.md — internal/verify package: Verifier interface + registry, ambient-free AWS STS verifier, GitHub net/http verifier, Run orchestrator (per-secret cache, errgroup limit 5, 5s timeout, sanitized errors)
+
+**Wave 3** *(blocked on Wave 1+2 — consumes raw map + verify.Run)*
+
+- [ ] 04-03-PLAN.md — Wire --verify (off by default, never in hook) into runScan on newFindings + human tag/tally + JSON omit-default + hook-offline test
 
 ## Progress
 
@@ -134,4 +143,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
 | 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete    | 2026-05-29 |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 3/3 | Complete    | 2026-05-30 |
-| 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |
+| 4. Opt-in Live Verification (AWS + GitHub) | 0/3 | Not started | - |

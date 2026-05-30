@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Usable End-to-End Scanner** - Redacting data model, fingerprint scheme, layered detection engine, filesystem/config source, concurrent pipeline, human + JSON output, `mimir scan` CLI, CI exit codes (completed 2026-05-22)
 - [x] **Phase 2: False-Positive Control (Suppression + Baseline)** - Inline ignore, `.mimirignore`, default allowlists, and a stable-fingerprint baseline so Mimir alerts only on NEW findings (completed 2026-05-29)
 - [x] **Phase 3: Full Source Coverage (Git History + Staged + Pre-commit)** - Memory-bounded git-history scan (incl. deleted secrets), staged-changes scan, and the pre-commit hook installer (completed 2026-05-30)
-- [ ] **Phase 4: Opt-in Live Verification (AWS + GitHub)** - Read-only, cached, rate-limited liveness checks behind `--verify` with three-state classification
+- [x] **Phase 4: Opt-in Live Verification (AWS + GitHub)** - Read-only, cached, rate-limited liveness checks behind `--verify` with three-state classification (completed 2026-05-30)
 
 ## Phase Details
 
@@ -131,7 +131,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 1+2 — consumes raw map + verify.Run)*
 
-- [ ] 04-03-PLAN.md — Wire --verify (off by default, never in hook) into runScan on newFindings + human tag/tally + JSON omit-default + hook-offline test
+- [x] 04-03-PLAN.md — Wire --verify (off by default, never in hook) into runScan on newFindings + human tag/tally + JSON omit-default + hook-offline test
 
 ## Progress
 
@@ -143,4 +143,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
 | 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete    | 2026-05-29 |
 | 3. Full Source Coverage (Git History + Staged + Pre-commit) | 3/3 | Complete    | 2026-05-30 |
-| 4. Opt-in Live Verification (AWS + GitHub) | 2/3 | In Progress|  |
+| 4. Opt-in Live Verification (AWS + GitHub) | 3/3 | Complete   | 2026-05-30 |

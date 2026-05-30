@@ -113,6 +113,10 @@ None for the build. **Runtime note:** `git >= 2.x` must be on PATH for `--staged
 - `go test -bench 'BenchmarkHistoryMem|BenchmarkStaged' -benchmem -run '^$' ./internal/gitscan/` — gate passes (large-N heap ~2.0 MB < 16 MB ceiling; staged ~0.83 ms/op).
 - OUT-02: `TestStagedModeNoCommitJSON` confirms staged JSON contains no `commit_sha` key.
 
+## Self-Check: PASSED
+
+All created/modified files present (internal/gitscan/{command,gitscan,gitscan_test,bench_test}.go, cmd/mimir/{scan,scan_test}.go, 03-02-SUMMARY.md) and all task commits exist (b9bbcc2, eebe2b1, dacc16c, bcf07ba).
+
 ---
 *Phase: 03-full-source-coverage-git-history-staged-pre-commit*
 *Completed: 2026-05-30*

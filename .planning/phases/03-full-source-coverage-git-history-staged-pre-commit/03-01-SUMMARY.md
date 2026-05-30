@@ -121,6 +121,10 @@ None for the build. **Runtime note:** `git >= 2.x` must be on PATH for `--git` m
 - `go vet ./...` — clean.
 - OUT-02: working-tree `scan --format json testdata/fixtures/` contains zero `commit_sha` keys.
 
+## Self-Check: PASSED
+
+All created files present (internal/gitscan/{command,parse,gitscan,gitscan_test}.go, 03-01-SUMMARY.md) and all task commits exist (30b57dc, 4c7e13d, 95a9469, 59eb4a9).
+
 ---
 *Phase: 03-full-source-coverage-git-history-staged-pre-commit*
 *Completed: 2026-05-30*

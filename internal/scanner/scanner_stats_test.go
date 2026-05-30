@@ -27,7 +27,7 @@ func TestWalkPruneCount(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.min.js"), []byte(secret), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.go"), []byte(secret), 0600))
 
-	findings, stats, err := s.Scan(context.Background(), []string{dir})
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
 	require.NoError(t, err)
 
 	assert.Greater(t, stats.PathsExcluded, 0, "vendor/ and app.min.js should be pruned and counted")
@@ -45,7 +45,7 @@ func TestStatsTransparencyCounters(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "clean.txt"), []byte("nothing to see here\n"), 0600))
 
-	_, stats, err := s.Scan(context.Background(), []string{dir})
+	_, _, stats, err := s.Scan(context.Background(), []string{dir})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, stats.PathsExcluded, "no path exclusion wired yet")
@@ -62,7 +62,7 @@ func TestInlineIgnoreDropsByDefault(t *testing.T) {
 	content := "aws_key = \"AKIAFAKEKEYABCDE2345\" // mimir:ignore\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.go"), []byte(content), 0600))
 
-	findings, stats, err := s.Scan(context.Background(), []string{dir})
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
 	require.NoError(t, err)
 
 	assert.Empty(t, findings, "inline-ignored finding must be dropped by default")
@@ -79,7 +79,7 @@ func TestInlineIgnoreAnnotatesWhenShowSuppressed(t *testing.T) {
 	content := "aws_key = \"AKIAFAKEKEYABCDE2345\" // mimir:ignore\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.go"), []byte(content), 0600))
 
-	findings, stats, err := s.Scan(context.Background(), []string{dir})
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
 	require.NoError(t, err)
 
 	require.Len(t, findings, 1, "inline-ignored finding must be kept under ShowSuppressed")

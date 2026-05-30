@@ -61,10 +61,15 @@ func New(engine *detect.Engine, cfg *config.Config) *Scanner {
 }
 
 // Scan walks each path in paths, scans all eligible files using a bounded
-// worker pool, and returns the sorted list of findings, scan stats, and any
-// error. A nil error means the scan completed (individual file errors are
-// logged to stderr when Verbose is set and do not abort the scan).
-func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, Stats, error) {
+// worker pool, and returns the sorted list of findings, a fingerprint→raw
+// side-channel map (for opt-in live verification), scan stats, and any error.
+// A nil error means the scan completed (individual file errors are logged to
+// stderr when Verbose is set and do not abort the scan).
+//
+// The returned raw map is keyed by finding fingerprint and carries the raw
+// secret off-struct; it is NEVER stored on a Finding or serialized. It is always
+// non-nil (empty when there are no findings) so callers may range it safely.
+func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, map[string]string, Stats, error) {
 	start := time.Now()
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -72,6 +77,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 
 	var mu sync.Mutex
 	var allFindings []finding.Finding
+	rawByFP := map[string]string{}
 	suppressedCounts := map[string]int{}
 	var filesScanned atomic.Int64
 	var pathsExcluded atomic.Int64
@@ -143,7 +149,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 			rootPath := root
 
 			g.Go(func() error {
-				findings, fileSuppressed, scanErr := s.scanFile(ctx, filePath, rootPath)
+				findings, fileSuppressed, fileRaw, scanErr := s.scanFile(ctx, filePath, rootPath)
 				if scanErr != nil {
 					if s.cfg.Verbose {
 						fmt.Fprintf(os.Stderr, "mimir: error scanning %s: %v\n", filePath, scanErr)
@@ -157,6 +163,11 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 					for reason, n := range fileSuppressed {
 						suppressedCounts[reason] += n
 					}
+					// Merge the per-file raw side channel under the same lock
+					// that guards allFindings (keys are unique per fingerprint).
+					for k, v := range fileRaw {
+						rawByFP[k] = v
+					}
 					mu.Unlock()
 				}
 				return nil
@@ -166,12 +177,12 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 		})
 
 		if walkErr != nil {
-			return nil, Stats{}, walkErr
+			return nil, nil, Stats{}, walkErr
 		}
 	}
 
 	if err := g.Wait(); err != nil {
-		return nil, Stats{}, err
+		return nil, nil, Stats{}, err
 	}
 
 	// Sort deterministically: File → Line → Column
@@ -188,7 +199,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	// suppressedCounts was accumulated during the walk (D-11). It counts every
 	// inline-ignored finding regardless of the annotate-vs-drop branch, so the
 	// summary is accurate even when suppressed findings were dropped at scan time.
-	return allFindings, Stats{
+	return allFindings, rawByFP, Stats{
 		FilesScanned:  int(filesScanned.Load()),
 		PathsExcluded: int(pathsExcluded.Load()),
 		Duration:      time.Since(start),
@@ -211,11 +222,16 @@ func relForMatch(root, p string) string {
 // suppression count. It enforces binary detection and uses the engine for
 // line-by-line scanning. Inline-ignored findings are dropped (default) or
 // kept+annotated (when s.ShowSuppressed) but counted in either case.
-func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]finding.Finding, map[string]int, error) {
+func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]finding.Finding, map[string]int, map[string]string, error) {
+	// Per-file raw-secret side channel (fingerprint → raw secret) for opt-in
+	// live verification. Populated by engine.ScanLine, merged into the run-level
+	// map under mu in Scan, NEVER stored on a Finding or serialized.
+	fileRaw := map[string]string{}
+
 	// Open and read the file
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer f.Close()
 
@@ -223,17 +239,17 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	header := make([]byte, 512)
 	n, err := f.Read(header)
 	if err != nil && n == 0 {
-		return nil, nil, nil // empty file
+		return nil, nil, fileRaw, nil // empty file
 	}
 	header = header[:n]
 
 	if isBinary(header) {
-		return nil, nil, nil // skip binary files
+		return nil, nil, fileRaw, nil // skip binary files
 	}
 
 	// Rewind and read full content line by line
 	if _, err := f.Seek(0, 0); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Compute repo-relative path (forward-slash normalized)
@@ -254,12 +270,12 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return findings, suppressed, ctx.Err()
+			return findings, suppressed, fileRaw, ctx.Err()
 		default:
 		}
 		lineNum++
 		line := scanner.Text()
-		lineFindings := s.engine.ScanLine(line, relPath, lineNum)
+		lineFindings := s.engine.ScanLine(line, relPath, lineNum, fileRaw)
 		// Inline-ignore suppression (SUP-01/D-12): if a finding's own source
 		// line carries a mimir-ignore directive for its rule, count it and
 		// either drop it (default) or annotate-and-keep (--show-suppressed).
@@ -276,8 +292,8 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return findings, suppressed, err
+		return findings, suppressed, fileRaw, err
 	}
 
-	return findings, suppressed, nil
+	return findings, suppressed, fileRaw, nil
 }

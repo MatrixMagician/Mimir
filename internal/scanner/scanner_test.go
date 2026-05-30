@@ -35,7 +35,7 @@ func TestScannerNonexistentPathIsFatal(t *testing.T) {
 
 	// A path the user named that does not exist must be a fatal error (→ exit 2),
 	// never a silent "clean" scan (→ exit 0) that would hide a typo'd path in CI.
-	_, _, err := s.Scan(context.Background(), []string{filepath.Join(t.TempDir(), "does-not-exist")})
+	_, _, _, err := s.Scan(context.Background(), []string{filepath.Join(t.TempDir(), "does-not-exist")})
 	require.Error(t, err)
 }
 
@@ -48,7 +48,7 @@ func TestScannerBinarySkip(t *testing.T) {
 	err := os.WriteFile(binFile, []byte("AKIA\x00FAKEKEY12345678"), 0600)
 	require.NoError(t, err)
 
-	findings, stats, err := s.Scan(context.Background(), []string{tmp})
+	findings, _, stats, err := s.Scan(context.Background(), []string{tmp})
 	require.NoError(t, err)
 	assert.Empty(t, findings, "expected 0 findings for binary file")
 	// The binary file should be walked but not scanned (not counted as FilesScanned)
@@ -72,7 +72,7 @@ func TestScannerGitDirSkip(t *testing.T) {
 	err = os.WriteFile(cleanFile, []byte("hello world\n"), 0600)
 	require.NoError(t, err)
 
-	findings, _, err := s.Scan(context.Background(), []string{tmp})
+	findings, _, _, err := s.Scan(context.Background(), []string{tmp})
 	require.NoError(t, err)
 	assert.Empty(t, findings, "expected 0 findings: .git directory should be skipped")
 }
@@ -82,7 +82,7 @@ func TestScannerFixturesDetected(t *testing.T) {
 	root := repoRoot(t)
 	fixturesPath := filepath.Join(root, "testdata", "fixtures")
 
-	findings, _, err := s.Scan(context.Background(), []string{fixturesPath})
+	findings, _, _, err := s.Scan(context.Background(), []string{fixturesPath})
 	require.NoError(t, err)
 	require.NotEmpty(t, findings, "expected at least 1 finding in testdata/fixtures")
 
@@ -102,7 +102,7 @@ func TestScannerCleanFileNoFindings(t *testing.T) {
 	root := repoRoot(t)
 	cleanPath := filepath.Join(root, "testdata", "clean", "no-secrets.go")
 
-	findings, _, err := s.Scan(context.Background(), []string{cleanPath})
+	findings, _, _, err := s.Scan(context.Background(), []string{cleanPath})
 	require.NoError(t, err)
 	assert.Empty(t, findings, "expected 0 findings in testdata/clean/no-secrets.go")
 }
@@ -112,7 +112,7 @@ func TestCleanNoKeywords(t *testing.T) {
 	root := repoRoot(t)
 	cleanDir := filepath.Join(root, "testdata", "clean")
 
-	findings, _, err := s.Scan(context.Background(), []string{cleanDir})
+	findings, _, _, err := s.Scan(context.Background(), []string{cleanDir})
 	require.NoError(t, err)
 	assert.Empty(t, findings, "expected 0 findings in testdata/clean/")
 }
@@ -122,7 +122,7 @@ func TestScannerRedactAtBoundary(t *testing.T) {
 	root := repoRoot(t)
 	fixturesPath := filepath.Join(root, "testdata", "fixtures")
 
-	findings, _, err := s.Scan(context.Background(), []string{fixturesPath})
+	findings, _, _, err := s.Scan(context.Background(), []string{fixturesPath})
 	require.NoError(t, err)
 	require.NotEmpty(t, findings, "expected findings for redaction check")
 

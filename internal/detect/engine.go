@@ -47,13 +47,21 @@ func NewEngine(cfg *config.Config) *Engine {
 // Pipeline: Aho-Corasick keyword gate → RE2 regex → entropy check → allowlist check → finding.New()
 //
 // The raw secret value is passed only to finding.New() which enforces redact-at-boundary.
-// This function never stores or logs the raw secret value.
+// This function never stores or logs the raw secret value on the Finding.
+//
+// The raw map is a caller-provided side channel for opt-in live verification
+// (Phase 4): for each finding produced, ScanLine writes raw[f.Fingerprint] =
+// rawSecret. This is the ONE site where the raw value still exists. The raw map
+// is NEVER assigned to a Finding field and NEVER serialized — it is consumed
+// off-struct by internal/verify. Callers that do not need verification may pass
+// a throwaway map.
 //
 // Parameters:
 //   - line: the raw line content (NOT lowercased)
 //   - filePath: repo-relative file path for the Finding
 //   - lineNum: 1-indexed line number
-func (e *Engine) ScanLine(line, filePath string, lineNum int) []finding.Finding {
+//   - raw: side-channel sink keyed by fingerprint → raw secret (off-struct)
+func (e *Engine) ScanLine(line, filePath string, lineNum int, raw map[string]string) []finding.Finding {
 	// Fast path: if no trie (no rules) or no keyword matches, skip all regex work
 	if e.trie == nil {
 		return nil
@@ -142,6 +150,9 @@ func (e *Engine) ScanLine(line, filePath string, lineNum int) []finding.Finding 
 			// Call finding.New() — this is the ONLY place rawSecret is used further.
 			// finding.New() enforces redact-at-boundary: rawSecret is never stored.
 			f := finding.New(rule.ID, filePath, lineNum, col, rawSecret, fullMatch, rule.IsHeuristic)
+			// Side-channel: carry the raw secret off-struct, keyed by fingerprint,
+			// for opt-in live verification. Never stored on f, never serialized.
+			raw[f.Fingerprint] = rawSecret
 			findings = append(findings, f)
 		}
 	}

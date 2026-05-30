@@ -255,7 +255,7 @@ func TestSelfScanOutThree(t *testing.T) {
 		t.Skip("testdata/fixtures/known-secrets.txt not found; skipping self-scan test")
 	}
 
-	findings, stats, err := s.Scan(context.Background(), []string{fixturesPath})
+	findings, _, stats, err := s.Scan(context.Background(), []string{fixturesPath})
 	require.NoError(t, err)
 	require.NotEmpty(t, findings, "expected at least one finding in known-secrets.txt")
 

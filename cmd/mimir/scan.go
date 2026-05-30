@@ -113,7 +113,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 	case stagedMode:
 		findings, stats, err = gitscan.ScanStaged(cmd.Context(), engine, scanRoot, showSuppressed)
 	default:
-		findings, stats, err = s.Scan(cmd.Context(), paths)
+		// The raw side-channel map is discarded here (Plan 04-03 consumes it to
+		// drive opt-in live verification); for now we only keep the build green.
+		findings, _, stats, err = s.Scan(cmd.Context(), paths)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

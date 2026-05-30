@@ -128,30 +128,70 @@ func (g githubVerifier) doOnce(ctx context.Context, token string) (Status, time.
 		return Active, 0, nil
 	case http.StatusUnauthorized:
 		return Inactive, 0, nil
-	case http.StatusForbidden, http.StatusTooManyRequests:
-		// Rate-limited / secondary-limit: signal a possible single retry.
+	case http.StatusTooManyRequests:
+		// Primary rate-limit: signal a possible single retry.
 		return "", parseRetryAfter(resp.Header.Get("Retry-After")), nil
+	case http.StatusForbidden:
+		// WR-05: GitHub returns 403 for many non-rate-limit reasons (missing
+		// scope, SAML enforcement, IP allowlist). Only a 403 that carries a
+		// rate-limit signal — a Retry-After header or X-RateLimit-Remaining: 0 —
+		// is a secondary rate-limit worth a single retry. A 403 with no such
+		// signal is non-definitive (the token may well be valid but the endpoint
+		// forbidden); classify it Unknown directly, without burning a retry.
+		if isRateLimited403(resp.Header) {
+			return "", parseRetryAfter(resp.Header.Get("Retry-After")), nil
+		}
+		return Unknown, 0, nil
 	default:
 		// 5xx and anything else non-definitive → Unknown.
 		return Unknown, 0, nil
 	}
 }
 
-// parseRetryAfter parses a Retry-After delta-seconds header into a Duration.
-// An empty or unparseable value returns 0 (treated as "no wait, but a retry is
-// permitted once"). HTTP-date form is not honored (GitHub uses delta-seconds).
+// isRateLimited403 reports whether a 403 response carries a secondary-rate-limit
+// signal: a Retry-After header, or X-RateLimit-Remaining: 0 (WR-05).
+func isRateLimited403(h http.Header) bool {
+	if h.Get("Retry-After") != "" {
+		return true
+	}
+	if h.Get("X-RateLimit-Remaining") == "0" {
+		return true
+	}
+	return false
+}
+
+// parseRetryAfter parses a Retry-After header into a Duration. RFC 7231 permits
+// two forms: delta-seconds (the common GitHub case) and an HTTP-date (WR-04).
+//
+//   - empty header  → one immediate retry (rate-limit response with no hint).
+//   - delta-seconds → that many seconds (0 ⇒ immediate retry).
+//   - HTTP-date     → the wait until that instant.
+//   - unparseable / a date in the past → wait the cap, NOT an immediate retry,
+//     so a server that asked us to back off is not effectively ignored.
+//
+// The returned value is always clamped to retryAfterCap by the caller, so a
+// hostile/large value cannot stall the run beyond the per-call budget.
 func parseRetryAfter(v string) time.Duration {
 	if v == "" {
 		// No header but still a rate-limit response: permit one immediate retry.
 		return time.Nanosecond
 	}
-	secs, err := strconv.Atoi(v)
-	if err != nil || secs < 0 {
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			// Retry-After: 0 (or negative) → retry immediately (but still once).
+			return time.Nanosecond
+		}
+		return time.Duration(secs) * time.Second
+	}
+	// Not delta-seconds — try the HTTP-date form (RFC 7231).
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+		// A date at/in the past → retry immediately.
 		return time.Nanosecond
 	}
-	if secs == 0 {
-		// Retry-After: 0 → retry immediately (but still only once).
-		return time.Nanosecond
-	}
-	return time.Duration(secs) * time.Second
+	// Unparseable: the server asked us to wait but we cannot tell how long.
+	// Back off the full cap rather than hammering it with an immediate retry.
+	return retryAfterCap
 }

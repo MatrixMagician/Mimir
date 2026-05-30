@@ -96,7 +96,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — History slice (SCAN-03): `internal/gitscan` package, stream `git log -p` → go-gitdiff → `engine.ScanLine`, D-08 commit-metadata Finding fields, `--git` source branch, D-10 short-SHA output; finds the added-then-deleted secret (criterion 1)
+- [x] 03-01-PLAN.md — History slice (SCAN-03): `internal/gitscan` package, stream `git log -p` → go-gitdiff → `engine.ScanLine`, D-08 commit-metadata Finding fields, `--git` source branch, D-10 short-SHA output; finds the added-then-deleted secret (criterion 1)
 
 **Wave 2** *(blocked on Wave 1 — shares internal/gitscan + cmd/mimir/scan.go)*
 
@@ -133,5 +133,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
 | 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete    | 2026-05-29 |
-| 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/3 | Not started | - |
+| 3. Full Source Coverage (Git History + Staged + Pre-commit) | 1/3 | In Progress|  |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

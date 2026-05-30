@@ -37,7 +37,7 @@ func TestEnginePrefilterFastPath(t *testing.T) {
 	eng := NewEngine(cfg)
 
 	// A line with no keywords should return nil via the fast path
-	findings := eng.ScanLine("no secret here, just plain text", "test.txt", 1)
+	findings := eng.ScanLine("no secret here, just plain text", "test.txt", 1, map[string]string{})
 	assert.Nil(t, findings, "expected nil findings for line with no keywords")
 }
 
@@ -47,10 +47,32 @@ func TestEngineScanLineAWSToken(t *testing.T) {
 
 	// 16 chars from [A-Z2-7]: valid suffix for the aws-access-token regex
 	line := awsKeyLine("FAKEKEYABCDE2345")
-	findings := eng.ScanLine(line, "test.txt", 1)
+	findings := eng.ScanLine(line, "test.txt", 1, map[string]string{})
 	require.Len(t, findings, 1, "expected exactly 1 finding")
 	assert.Equal(t, "aws-access-token", findings[0].RuleID)
 	assert.Equal(t, 1, findings[0].Line)
+}
+
+// TestScanLineEmitsRawIntoSink verifies the off-struct raw-secret side channel:
+// ScanLine writes raw[finding.Fingerprint] = rawSecret into the caller-provided
+// sink, keyed by the same fingerprint the finding carries. The raw value is the
+// exact secret and never appears on the Finding itself.
+func TestScanLineEmitsRawIntoSink(t *testing.T) {
+	cfg := loadTestConfig(t)
+	eng := NewEngine(cfg)
+
+	rawKey := syntheticAWSKey("FAKEKEYABCDE2345")
+	line := "aws_access_key_id = " + rawKey
+	raw := map[string]string{}
+	findings := eng.ScanLine(line, "test.txt", 1, raw)
+	require.Len(t, findings, 1, "expected exactly 1 finding")
+
+	fp := findings[0].Fingerprint
+	gotRaw, ok := raw[fp]
+	require.True(t, ok, "raw sink must contain an entry keyed by the finding's fingerprint")
+	assert.Equal(t, rawKey, gotRaw, "raw sink must carry the exact raw secret")
+	// The raw value must NOT have leaked onto the redacted Finding.
+	assert.NotEqual(t, rawKey, findings[0].Secret)
 }
 
 func TestEngineScanLineEntropyGate(t *testing.T) {
@@ -59,7 +81,7 @@ func TestEngineScanLineEntropyGate(t *testing.T) {
 
 	// 16 identical chars → very low entropy → entropy gate should reject
 	line := awsKeyLine(strings.Repeat("A", 16))
-	findings := eng.ScanLine(line, "test.txt", 1)
+	findings := eng.ScanLine(line, "test.txt", 1, map[string]string{})
 	assert.Nil(t, findings, "expected nil findings: low entropy value should be rejected by entropy gate")
 }
 
@@ -72,7 +94,7 @@ func TestEngineScanLineAllowlistExample(t *testing.T) {
 	// It also ends in EXAMPLE, so the per-rule allowlist should suppress it.
 	// Additionally, the global allowlist should catch it even for generic-api-key.
 	line := awsKeyLine("IOSFODNN7EXAMPLE")
-	findings := eng.ScanLine(line, "test.txt", 1)
+	findings := eng.ScanLine(line, "test.txt", 1, map[string]string{})
 	assert.Nil(t, findings, "expected nil findings: EXAMPLE suffix is allowlisted")
 }
 
@@ -102,7 +124,7 @@ func TestEngineNoRawSecretInFindings(t *testing.T) {
 	suffix := "FAKEKEYABCDE2345"
 	rawSecret := syntheticAWSKey(suffix)
 	line := "aws_access_key_id = " + rawSecret
-	findings := eng.ScanLine(line, "test.txt", 1)
+	findings := eng.ScanLine(line, "test.txt", 1, map[string]string{})
 	require.NotEmpty(t, findings, "expected at least one finding")
 
 	for _, f := range findings {
@@ -154,7 +176,7 @@ func TestConnStr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			findings := eng.ScanLine(tt.line, "test.txt", 1)
+			findings := eng.ScanLine(tt.line, "test.txt", 1, map[string]string{})
 			require.Len(t, findings, tt.wantCount, "unexpected finding count for: %q", tt.line)
 			if tt.wantCount > 0 {
 				assert.Equal(t, tt.wantRule, findings[0].RuleID)
@@ -180,7 +202,7 @@ func TestNoEntropy(t *testing.T) {
 
 		// Low entropy: AKIA + 16 identical chars → entropy well below 3.0
 		line := awsKeyLine(strings.Repeat("B", 16))
-		findings := eng.ScanLine(line, "test.txt", 1)
+		findings := eng.ScanLine(line, "test.txt", 1, map[string]string{})
 		assert.Nil(t, findings, "low-entropy match should be rejected when NoEntropy=false")
 	})
 
@@ -191,7 +213,7 @@ func TestNoEntropy(t *testing.T) {
 
 		// Same low-entropy key — with NoEntropy=true it should produce a finding
 		line := awsKeyLine(strings.Repeat("B", 16))
-		findings := eng.ScanLine(line, "test.txt", 1)
+		findings := eng.ScanLine(line, "test.txt", 1, map[string]string{})
 		require.NotEmpty(t, findings, "low-entropy match should pass when NoEntropy=true")
 		assert.Equal(t, "aws-access-token", findings[0].RuleID)
 	})
@@ -231,7 +253,7 @@ func TestAllRules(t *testing.T) {
 
 	// Scan every line in the fixture file
 	for i, line := range lines {
-		findings := eng.ScanLine(line, "known-secrets.txt", i+1)
+		findings := eng.ScanLine(line, "known-secrets.txt", i+1, map[string]string{})
 		for _, f := range findings {
 			ruleIDs[f.RuleID] = true
 		}
@@ -260,7 +282,7 @@ func TestCleanNoFP(t *testing.T) {
 	for sc.Scan() {
 		lineNum++
 		line := sc.Text()
-		findings := eng.ScanLine(line, "no-secrets.go", lineNum)
+		findings := eng.ScanLine(line, "no-secrets.go", lineNum, map[string]string{})
 		for _, finding := range findings {
 			allFindings = append(allFindings, "line "+string(rune('0'+lineNum))+" rule "+finding.RuleID)
 		}

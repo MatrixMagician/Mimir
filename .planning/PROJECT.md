@@ -24,18 +24,18 @@ Accurately catch real leaked secrets — with few enough false positives that de
 - [x] Emit human-readable output (file:line, rule, redacted snippet) — Validated in Phase 1
 - [x] Emit JSON output for automation/tooling — Validated in Phase 1
 - [x] Support custom detection rules via a config file (built-in ruleset + user regex) — Validated in Phase 1
+- [x] Suppress false positives via inline ignore comments (`// mimir:ignore`) — Validated in Phase 2
+- [x] Suppress false positives via an ignore file (`.mimirignore` paths/globs) — Validated in Phase 2
+- [x] Suppress via a baseline file — only alert on NEW findings vs a snapshot — Validated in Phase 2
+- [x] Scan git history (past commits) for secrets, including deleted ones — Validated in Phase 3
+- [x] Scan only staged changes (for the pre-commit use case) — Validated in Phase 3
+- [x] Run as a pre-commit hook — block commits containing secrets — Validated in Phase 3
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] Scan git history (past commits) for secrets, including deleted ones
-- [ ] Scan only staged changes (for the pre-commit use case)
 - [ ] Live-verify a few key providers in v1 (AWS, GitHub) — confirm a found credential is active
-- [ ] Run as a pre-commit hook — block commits containing secrets
-- [ ] Suppress false positives via inline ignore comments (`// mimir:ignore`)
-- [ ] Suppress false positives via an ignore file (`.mimirignore` paths/globs)
-- [ ] Suppress via a baseline file — only alert on NEW findings vs a snapshot
 
 ### Out of Scope
 
@@ -95,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 after Phase 1 completion — Usable End-to-End Scanner shipped (working-tree + config-file scanning, layered detection, redacted human/JSON output, CI exit codes, custom TOML rules)*
+*Last updated: 2026-05-30 after Phase 3 completion — Full Source Coverage shipped: git-history scanning (streamed, memory-bounded, finds deleted secrets), staged-changes scanning, and an offline pre-commit hook installer with an honest bypass. Phase 2 (false-positive control: inline ignore, `.mimirignore`, allowlists, baseline) also validated. Remaining v1 scope: opt-in live verification (AWS + GitHub) in Phase 4.*

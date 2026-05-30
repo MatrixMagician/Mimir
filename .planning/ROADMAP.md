@@ -91,12 +91,20 @@ Plans:
   3. User can scan only staged changes (`git diff --cached`), and a `mimir`-installed pre-commit hook blocks a commit containing a secret while respecting inline `// mimir:ignore`
   4. The pre-commit hook is staged-only, fully offline, and sub-second on a typical staged diff, with an honest documented bypass
 
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — History slice (SCAN-03): `internal/gitscan` package, stream `git log -p` → go-gitdiff → `engine.ScanLine`, D-08 commit-metadata Finding fields, `--git` source branch, D-10 short-SHA output; finds the added-then-deleted secret (criterion 1)
+
+**Wave 2** *(blocked on Wave 1 — shares internal/gitscan + cmd/mimir/scan.go)*
+
+- [ ] 03-02-PLAN.md — Staged slice (SCAN-04) + criterion-2 benchmark gate: `ScanStaged` over `git diff --staged` honoring inline-ignore, `--staged` flag + `--git`/`--staged` mutual exclusion, `BenchmarkHistoryMem` bounded-memory regression gate
+
+**Wave 3** *(blocked on Wave 2 — hook e2e exercises `mimir scan --staged`)*
+
+- [ ] 03-03-PLAN.md — Hook slice (IFACE-03): `mimir hook install/uninstall/status` (managed, no-clobber-without-`--force`, rev-parse hook dir), offline staged-only hook script with honest bypass, block-commit e2e, `.pre-commit-hooks.yaml` manifest + README
 
 ### Phase 4: Opt-in Live Verification (AWS + GitHub)
 
@@ -125,5 +133,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
 | 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete    | 2026-05-29 |
-| 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/TBD | Not started | - |
+| 3. Full Source Coverage (Git History + Staged + Pre-commit) | 0/3 | Not started | - |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

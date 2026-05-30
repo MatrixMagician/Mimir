@@ -28,7 +28,7 @@
     "discuss_mode": "discuss",
     "skip_discuss": false,
     "code_review": true,
-    "code_review_depth": "standard",
+    "code_review_depth": "deep",
     "pattern_mapper": true,
     "ai_integration_phase": true,
     "tdd_mode": false,

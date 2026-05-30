@@ -1,0 +1,9 @@
+# pre-commit-framework manifest (https://pre-commit.com) — D-07.
+# Lets pre-commit / husky users reference Mimir without the native `mimir hook install`.
+# The hook scans the staged diff only and is fully offline (never live-verifies).
+- id: mimir
+  name: mimir (scan staged changes for secrets)
+  description: Scan the staged diff for leaked secrets, API keys, and credentials before commit.
+  entry: mimir scan --staged
+  language: golang
+  pass_filenames: false

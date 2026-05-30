@@ -335,3 +335,61 @@ func TestGitModeNonRepoFailsLoud(t *testing.T) {
 	_, _, code := runMimir(t, "scan", "--no-color", "--git", dir)
 	assert.Equal(t, 2, code, "--git on a non-git directory must exit 2")
 }
+
+// newStagedFixtureRepo builds a temp git repo with an initial commit, then stages
+// `name` containing `content` (staged but not committed) so `git diff --staged`
+// has a HEAD to diff against and the staged line is reported.
+func newStagedFixtureRepo(t *testing.T, name, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q", "-b", "main")
+	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
+	gitCmd(t, dir, "config", "user.name", "Mimir Test")
+	gitCmd(t, dir, "config", "commit.gpgsign", "false")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".keep"), []byte("init\n"), 0600))
+	gitCmd(t, dir, "add", ".keep")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0600))
+	gitCmd(t, dir, "add", name)
+	return dir
+}
+
+// TestStagedModeFindsSecret verifies `mimir scan --staged` finds a staged secret,
+// exits 1 (so the hook blocks the commit, IFACE-02), reports the file, and emits
+// NO commit-SHA marker (staged findings carry no commit metadata, Pitfall 5).
+func TestStagedModeFindsSecret(t *testing.T) {
+	dir := newStagedFixtureRepo(t, "leak.txt", "aws_access_key_id = AKIAFAKEKEYABCDE2345\n")
+	stdout, _, code := runMimir(t, "scan", "--no-color", "--staged", dir)
+	assert.Equal(t, 1, code, "a staged secret must flip exit to 1")
+	assert.Contains(t, stdout, "aws-access-token", "the matched rule must be reported")
+	assert.Contains(t, stdout, "leak.txt", "the leaking file must be reported")
+	assert.NotContains(t, stdout, " @ ", "staged output must NOT carry a commit SHA marker (Pitfall 5)")
+	assert.NotContains(t, stdout, "AKIAFAKEKEYABCDE2345", "raw secret must never appear in output")
+}
+
+// TestStagedModeNoCommitJSON verifies staged JSON output has no commit_sha key
+// (OUT-02 byte-identical schema for non-history scans).
+func TestStagedModeNoCommitJSON(t *testing.T) {
+	dir := newStagedFixtureRepo(t, "leak.txt", "aws_access_key_id = AKIAFAKEKEYABCDE2345\n")
+	stdout, _, _ := runMimir(t, "scan", "--no-color", "--staged", "--format", "json", dir)
+	assert.Contains(t, stdout, "aws-access-token", "staged JSON must report the finding")
+	assert.NotContains(t, stdout, "commit_sha", "staged JSON must omit commit_sha (OUT-02, Pitfall 5)")
+}
+
+// TestStagedInlineIgnoreCmd verifies a staged secret on a `// mimir:ignore` line
+// yields exit 0 — the inline-ignore directive is honored end-to-end (criterion 3).
+func TestStagedInlineIgnoreCmd(t *testing.T) {
+	dir := newStagedFixtureRepo(t, "leak.go",
+		"key := \"AKIAFAKEKEYABCDE2345\" // mimir:ignore\n")
+	_, _, code := runMimir(t, "scan", "--no-color", "--staged", dir)
+	assert.Equal(t, 0, code, "an inline-ignored staged secret must exit 0")
+}
+
+// TestGitStagedMutuallyExclusive verifies `scan --git --staged` exits 2 (misuse,
+// Pitfall 6 / RESEARCH A2).
+func TestGitStagedMutuallyExclusive(t *testing.T) {
+	dir := newStagedFixtureRepo(t, "leak.txt", "aws_access_key_id = AKIAFAKEKEYABCDE2345\n")
+	_, stderr, code := runMimir(t, "scan", "--no-color", "--git", "--staged", dir)
+	assert.Equal(t, 2, code, "--git and --staged together must exit 2")
+	assert.Contains(t, stderr, "mutually exclusive", "the error must explain the misuse")
+}

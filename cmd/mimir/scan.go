@@ -33,6 +33,7 @@ func init() {
 	scanCmd.Flags().Bool("show-suppressed", false, "Include suppressed findings (inline-ignore, allowlist, baseline) in output, annotated and informational only")
 	scanCmd.Flags().Bool("no-default-excludes", false, "Disable the shipped default path excludes (vendor/, node_modules/, *.min.js, lockfiles)")
 	scanCmd.Flags().Bool("git", false, "Scan current-branch git history for secrets (added-then-deleted included)")
+	scanCmd.Flags().Bool("staged", false, "Scan the staged diff (git diff --staged) — used by the pre-commit hook")
 	scanCmd.Flags().String("baseline", "", "Suppress findings present in this baseline JSON file; alert only on NEW findings (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().String("baseline-out", "", "Write the current reportable findings as a baseline JSON snapshot (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
@@ -93,14 +94,25 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// 5. Scan — the mode flag selects the Source; everything downstream
 	// (baseline, output, exit code) is shared and unchanged across modes (D-01).
-	// --git streams current-branch history through gitscan; the default keeps the
-	// Phase 1 working-tree walk. (--staged is registered in Plan 02.)
+	// --git streams current-branch history; --staged streams the staged diff (the
+	// pre-commit hook's source); the default keeps the Phase 1 working-tree walk.
 	gitMode, _ := cmd.Flags().GetBool("git")
+	stagedMode, _ := cmd.Flags().GetBool("staged")
+	// --git and --staged are mutually exclusive (Pitfall 6 / RESEARCH A2): they
+	// select different sources, so passing both is misuse → exit 2 (matching the
+	// other fail-loud os.Exit(2) calls in this function).
+	if gitMode && stagedMode {
+		fmt.Fprintln(os.Stderr, "error: --git and --staged are mutually exclusive")
+		os.Exit(2)
+	}
 	var findings []finding.Finding
 	var stats scanner.Stats
-	if gitMode {
+	switch {
+	case gitMode:
 		findings, stats, err = gitscan.ScanHistory(cmd.Context(), engine, scanRoot, showSuppressed)
-	} else {
+	case stagedMode:
+		findings, stats, err = gitscan.ScanStaged(cmd.Context(), engine, scanRoot, showSuppressed)
+	default:
 		findings, stats, err = s.Scan(cmd.Context(), paths)
 	}
 	if err != nil {

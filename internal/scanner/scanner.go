@@ -83,7 +83,8 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	var pathsExcluded atomic.Int64
 
 	for _, root := range paths {
-		root := root // capture loop variable
+		// go.mod pins go 1.25, where each loop iteration already has its own
+		// `root` — no pre-1.22 `root := root` capture shadow is needed (IN-01).
 		walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				// A failure on the root path itself (e.g. it does not exist) is

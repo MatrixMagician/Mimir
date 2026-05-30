@@ -81,7 +81,9 @@ func runWithRegistry(ctx context.Context, reg map[string]Verifier, scanRoot stri
 	cache := map[cacheKey]*cacheEntry{}
 
 	for i := range findings {
-		i := i
+		// IN-02: f is a deliberate value copy of the finding, captured by the
+		// g.Go closure below and handed to v.Verify; the whole struct is kept
+		// available so future verifiers can read fields beyond f.File.
 		f := findings[i]
 
 		v, ok := reg[f.RuleID]

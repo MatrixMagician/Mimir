@@ -19,7 +19,30 @@ var (
 	heuStyle     = color.New(color.FgYellow)
 	warnStyle    = color.New(color.FgYellow, color.Bold)
 	okStyle      = color.New(color.FgGreen, color.Bold)
+
+	// Verification tag styles (Phase 4 / VERIFY-02): ACTIVE is the alarm color
+	// (a live credential — red+bold), INACTIVE is de-emphasized (dim, mirroring
+	// the suppressed section's FgHiBlack), UNKNOWN is a caution (yellow). With
+	// color.NoColor=true all three render the plain tag word, so output stays
+	// assertable in tests and CI logs.
+	verifyActiveStyle   = color.New(color.FgRed, color.Bold)
+	verifyInactiveStyle = color.New(color.FgHiBlack)
+	verifyUnknownStyle  = color.New(color.FgYellow)
 )
+
+// verificationTag returns the styled, bracketed tag for a verification status.
+// The status is a fixed enum (never a verifier free-string), so it needs no
+// sanitizeForTTY pass (T-04-tty).
+func verificationTag(status string) string {
+	switch status {
+	case "active":
+		return verifyActiveStyle.Sprint("[ACTIVE]")
+	case "inactive":
+		return verifyInactiveStyle.Sprint("[INACTIVE]")
+	default: // "unknown" (and any unexpected value) maps to the caution tag.
+		return verifyUnknownStyle.Sprint("[UNKNOWN]")
+	}
+}
 
 // WriteHuman writes findings and (unless quiet is true) a scan-stats summary to w.
 //
@@ -36,6 +59,10 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 	// tagged --show-suppressed row renderer is owned by Plan 04.
 	activeCount := 0
 	activeFiles := make(map[string]struct{})
+	// Verification tally counters (VERIFY-02): only incremented when a finding
+	// carries a Verification (i.e. only under --verify). When all three stay 0,
+	// no tag and no tally line is printed — the non-verify path is byte-identical.
+	var verActive, verInactive, verUnknown int
 	var suppressed []finding.Finding
 	for _, f := range findings {
 		if f.Suppressed {
@@ -57,16 +84,32 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 			ruleStr = sigRuleStyle.Sprint(ruleDisplay)
 		}
 
+		// Verification tag (VERIFY-02): appended ONLY when a finding was verified.
+		// A nil Verification yields no suffix, so the row stays byte-identical to
+		// the pre-Phase-4 format (mirrors the CommitSHA conditional discipline).
+		tagSuffix := ""
+		if f.Verification != nil {
+			switch f.Verification.Status {
+			case "active":
+				verActive++
+			case "inactive":
+				verInactive++
+			default:
+				verUnknown++
+			}
+			tagSuffix = "  " + verificationTag(f.Verification.Status)
+		}
+
 		// D-10: history findings carry a commit SHA — append a short SHA to the
 		// location so the user can jump to the leaking commit. Working-tree and
 		// staged findings have an empty CommitSHA, so the no-SHA branch is kept
 		// byte-identical to the Phase 1 format (OUT-02 stability).
 		if f.CommitSHA != "" {
-			fmt.Fprintf(w, "%s:%d:%d @ %s  %s  %s\n",
-				sanitizeForTTY(f.File), f.Line, f.Column, sanitizeForTTY(shortSHA(f.CommitSHA)), ruleStr, sanitizeForTTY(f.Secret))
+			fmt.Fprintf(w, "%s:%d:%d @ %s  %s  %s%s\n",
+				sanitizeForTTY(f.File), f.Line, f.Column, sanitizeForTTY(shortSHA(f.CommitSHA)), ruleStr, sanitizeForTTY(f.Secret), tagSuffix)
 		} else {
-			fmt.Fprintf(w, "%s:%d:%d  %s  %s\n",
-				sanitizeForTTY(f.File), f.Line, f.Column, ruleStr, sanitizeForTTY(f.Secret))
+			fmt.Fprintf(w, "%s:%d:%d  %s  %s%s\n",
+				sanitizeForTTY(f.File), f.Line, f.Column, ruleStr, sanitizeForTTY(f.Secret), tagSuffix)
 		}
 
 		// --verbose surfaces the paste-ready suppression hint + fingerprint
@@ -114,6 +157,13 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		if n := stats.Suppressed[reason]; n > 0 {
 			fmt.Fprintf(w, "  (%d %s)\n", n, reason)
 		}
+	}
+
+	// Verification tally (VERIFY-02): one line summarizing the rendered findings'
+	// verification outcomes. Printed only when at least one finding was verified
+	// (i.e. only under --verify), so the non-verify summary is byte-identical.
+	if verActive+verInactive+verUnknown > 0 {
+		fmt.Fprintf(w, "Verified: %d active, %d inactive, %d unknown\n", verActive, verInactive, verUnknown)
 	}
 }
 

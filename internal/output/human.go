@@ -56,12 +56,25 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 			ruleStr = sigRuleStyle.Sprint(ruleDisplay)
 		}
 
-		fmt.Fprintf(w, "%s:%d:%d  %s  %s\n",
-			f.File, f.Line, f.Column, ruleStr, f.Secret)
+		// D-10: history findings carry a commit SHA — append a short SHA to the
+		// location so the user can jump to the leaking commit. Working-tree and
+		// staged findings have an empty CommitSHA, so the no-SHA branch is kept
+		// byte-identical to the Phase 1 format (OUT-02 stability).
+		if f.CommitSHA != "" {
+			fmt.Fprintf(w, "%s:%d:%d @ %s  %s  %s\n",
+				f.File, f.Line, f.Column, shortSHA(f.CommitSHA), ruleStr, f.Secret)
+		} else {
+			fmt.Fprintf(w, "%s:%d:%d  %s  %s\n",
+				f.File, f.Line, f.Column, ruleStr, f.Secret)
+		}
 
 		// --verbose surfaces the paste-ready suppression hint + fingerprint
-		// (D-04, criterion 1) so the user knows exactly what to add.
+		// (D-04, criterion 1) so the user knows exactly what to add. For history
+		// findings it additionally surfaces the full commit author and date.
 		if verbose {
+			if f.CommitSHA != "" && (f.CommitAuthor != "" || f.CommitDate != "") {
+				fmt.Fprintf(w, "    ↳ commit %s by %s on %s\n", f.CommitSHA, f.CommitAuthor, f.CommitDate)
+			}
 			fmt.Fprintf(w, "    ↳ suppress: add `// mimir:ignore` on this line · fingerprint: %s\n", f.Fingerprint)
 		}
 	}
@@ -100,6 +113,16 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 			fmt.Fprintf(w, "  (%d %s)\n", n, reason)
 		}
 	}
+}
+
+// shortSHA returns the conventional 7-character abbreviation of a git commit
+// SHA, or the whole value when it is shorter (length-guarded so a malformed or
+// truncated SHA never panics).
+func shortSHA(sha string) string {
+	if len(sha) <= 7 {
+		return sha
+	}
+	return sha[:7]
 }
 
 // suppressInlineReason mirrors suppress.InlineReason without importing the

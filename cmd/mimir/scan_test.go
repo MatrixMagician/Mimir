@@ -288,3 +288,50 @@ func TestShowSuppressed(t *testing.T) {
 	def, _, _ := runMimir(t, "scan", "--no-color", "--format", "json", "testdata/fixtures/")
 	assert.NotContains(t, def, "suppression_reason", "default JSON must omit suppression_reason")
 }
+
+// gitCmd runs a git command in dir and fails the test on error.
+func gitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{"-C", dir}, args...)
+	out, err := exec.Command("git", full...).CombinedOutput()
+	require.NoErrorf(t, err, "git %v failed: %s", args, string(out))
+}
+
+// newGitFixtureRepo builds a temp git repo where a secret is added in commit 1
+// and the file is deleted in commit 2 (the added-then-deleted history case).
+func newGitFixtureRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q", "-b", "main")
+	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
+	gitCmd(t, dir, "config", "user.name", "Mimir Test")
+	gitCmd(t, dir, "config", "commit.gpgsign", "false")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "leak.txt"),
+		[]byte("aws_access_key_id = AKIAFAKEKEYABCDE2345\n"), 0600))
+	gitCmd(t, dir, "add", "leak.txt")
+	gitCmd(t, dir, "commit", "-q", "-m", "add secret")
+	gitCmd(t, dir, "rm", "-q", "leak.txt")
+	gitCmd(t, dir, "commit", "-q", "-m", "remove secret file")
+	return dir
+}
+
+// TestGitModeFindsHistorySecret verifies `mimir scan --git` finds a secret added
+// in a past commit and later deleted, exits 1, and prints the rule plus a short
+// SHA marker (SCAN-03 criterion 1, end-to-end).
+func TestGitModeFindsHistorySecret(t *testing.T) {
+	dir := newGitFixtureRepo(t)
+	stdout, _, code := runMimir(t, "scan", "--no-color", "--git", dir)
+	assert.Equal(t, 1, code, "history secret must flip exit to 1")
+	assert.Contains(t, stdout, "aws-access-token", "the matched rule must be reported")
+	assert.Contains(t, stdout, "leak.txt", "the leaking file must be reported")
+	assert.Contains(t, stdout, " @ ", "history output must append a short commit SHA marker (D-10)")
+	assert.NotContains(t, stdout, "AKIAFAKEKEYABCDE2345", "raw secret must never appear in output")
+}
+
+// TestGitModeNonRepoFailsLoud verifies `--git` against a non-git directory exits
+// 2 (fail-loud, Pitfall 4) rather than silently reporting clean.
+func TestGitModeNonRepoFailsLoud(t *testing.T) {
+	dir := t.TempDir() // no git init
+	_, _, code := runMimir(t, "scan", "--no-color", "--git", dir)
+	assert.Equal(t, 2, code, "--git on a non-git directory must exit 2")
+}

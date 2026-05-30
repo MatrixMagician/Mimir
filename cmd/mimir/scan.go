@@ -9,6 +9,7 @@ import (
 	mimirconfig "github.com/MatrixMagician/mimir/internal/config"
 	"github.com/MatrixMagician/mimir/internal/detect"
 	"github.com/MatrixMagician/mimir/internal/finding"
+	"github.com/MatrixMagician/mimir/internal/gitscan"
 	"github.com/MatrixMagician/mimir/internal/output"
 	"github.com/MatrixMagician/mimir/internal/scanner"
 	"github.com/MatrixMagician/mimir/internal/suppress"
@@ -31,6 +32,7 @@ func init() {
 	scanCmd.Flags().Bool("quiet", false, "Suppress end-of-scan summary line (findings still printed)")
 	scanCmd.Flags().Bool("show-suppressed", false, "Include suppressed findings (inline-ignore, allowlist, baseline) in output, annotated and informational only")
 	scanCmd.Flags().Bool("no-default-excludes", false, "Disable the shipped default path excludes (vendor/, node_modules/, *.min.js, lockfiles)")
+	scanCmd.Flags().Bool("git", false, "Scan current-branch git history for secrets (added-then-deleted included)")
 	scanCmd.Flags().String("baseline", "", "Suppress findings present in this baseline JSON file; alert only on NEW findings (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().String("baseline-out", "", "Write the current reportable findings as a baseline JSON snapshot (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
@@ -89,8 +91,18 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	s.Matcher = matcher
 
-	// 5. Scan
-	findings, stats, err := s.Scan(cmd.Context(), paths)
+	// 5. Scan — the mode flag selects the Source; everything downstream
+	// (baseline, output, exit code) is shared and unchanged across modes (D-01).
+	// --git streams current-branch history through gitscan; the default keeps the
+	// Phase 1 working-tree walk. (--staged is registered in Plan 02.)
+	gitMode, _ := cmd.Flags().GetBool("git")
+	var findings []finding.Finding
+	var stats scanner.Stats
+	if gitMode {
+		findings, stats, err = gitscan.ScanHistory(cmd.Context(), engine, scanRoot, showSuppressed)
+	} else {
+		findings, stats, err = s.Scan(cmd.Context(), paths)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/mimir/internal/finding"
 	"github.com/stretchr/testify/assert"
@@ -141,6 +142,50 @@ func TestNoSecretInError(t *testing.T) {
 	// sanitizedError must never carry the secret regardless of construction.
 	se := sanitizedError{provider: "github", reason: reasonAPIError}
 	assert.False(t, strings.Contains(se.Error(), secret))
+}
+
+// panickingVerifier panics inside Verify, simulating an SDK bug or a malformed
+// pairing edge on adversarial scanned content (CR-01).
+type panickingVerifier struct{}
+
+func (panickingVerifier) Provider() string { return "github" }
+func (panickingVerifier) Verify(ctx context.Context, raw string, f finding.Finding) Status {
+	panic("verifier blew up on adversarial input")
+}
+
+// TestPanicDoesNotDeadlock asserts a panicking verifier does NOT hang the scan
+// (CR-01): the cache owner recovers the panic, classifies the secret Unknown,
+// and unblocks every waiter on that key. The same secret is shared across many
+// findings so non-owner waiters exercise the <-entry.done path. Run completes
+// (returns) and all findings are labelled Unknown rather than deadlocking.
+func TestPanicDoesNotDeadlock(t *testing.T) {
+	reg := map[string]Verifier{"github-pat": panickingVerifier{}}
+
+	const secret = "ghp_FAKEtoken0123456789abcdefABCDEF012345"
+	var findings []finding.Finding
+	rawByFP := map[string]string{}
+	for i := 0; i < 20; i++ {
+		fp := "fp-" + string(rune('a'+i))
+		findings = append(findings, finding.Finding{RuleID: "github-pat", Fingerprint: fp})
+		rawByFP[fp] = secret
+	}
+
+	done := make(chan struct{})
+	go func() {
+		runWithRegistry(context.Background(), reg, findings, rawByFP)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("runWithRegistry deadlocked on a panicking verifier (CR-01 regression)")
+	}
+
+	for i := range findings {
+		require.NotNil(t, findings[i].Verification, "finding %d must be labelled, not left hung", i)
+		assert.Equal(t, string(Unknown), findings[i].Verification.Status,
+			"a panicking verifier must classify as Unknown, never fail the scan")
+	}
 }
 
 // TestRegistry asserts the rule-ID → verifier provider mappings: the AWS

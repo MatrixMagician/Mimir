@@ -110,10 +110,26 @@ func runWithRegistry(ctx context.Context, reg map[string]Verifier, findings []fi
 				cache[key] = entry
 				mu.Unlock()
 
-				callCtx, cancel := context.WithTimeout(ctx, perCallTimeout)
-				entry.status = v.Verify(callCtx, raw, f)
-				cancel()
-				close(entry.done)
+				// CR-01: close(entry.done) MUST run unconditionally. If
+				// v.Verify panics (an SDK bug on adversarial input, a future
+				// verifier, a malformed pairing edge), a bare close after the
+				// call would be skipped — every waiter on this key would block
+				// on <-entry.done forever and g.Wait() would never return,
+				// hanging the entire scan. A recover() classifies the
+				// panicking secret as Unknown (the three-state never-fail-the-
+				// scan contract) and guarantees the cache holds a result before
+				// the channel is closed, so waiters read Unknown, not a deadlock.
+				func() {
+					defer close(entry.done)
+					defer func() {
+						if r := recover(); r != nil {
+							entry.status = Unknown
+						}
+					}()
+					callCtx, cancel := context.WithTimeout(ctx, perCallTimeout)
+					defer cancel()
+					entry.status = v.Verify(callCtx, raw, f)
+				}()
 			}
 
 			findings[i].Verification = &finding.Verification{

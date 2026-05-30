@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -130,7 +131,17 @@ func findSecretKey(path string) (string, bool) {
 		return "", false
 	}
 	if len(data) > maxPairingReadBytes {
-		data = data[:maxPairingReadBytes]
+		// WR-03: cut at the last newline before the cap rather than a raw byte
+		// offset. A raw cut can bisect a multi-byte UTF-8 sequence (yielding a
+		// replacement rune at the boundary) or split a secret key across the
+		// limit. Truncating to a line boundary keeps every retained line intact
+		// and well-formed; a key that straddles the cap is simply dropped, which
+		// is acceptable for best-effort pairing.
+		cut := maxPairingReadBytes
+		if nl := bytes.LastIndexByte(data[:maxPairingReadBytes], '\n'); nl >= 0 {
+			cut = nl
+		}
+		data = data[:cut]
 	}
 
 	lines := strings.Split(string(data), "\n")

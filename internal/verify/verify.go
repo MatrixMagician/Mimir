@@ -19,9 +19,115 @@ package verify
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/MatrixMagician/mimir/internal/finding"
+	"golang.org/x/sync/errgroup"
 )
+
+// perCallTimeout bounds each individual verification call (CONTEXT decision: 5s
+// default for v1).
+const perCallTimeout = 5 * time.Second
+
+// concurrencyLimit bounds the verification worker pool so we never hammer a
+// provider's API (CONTEXT decision: ~5).
+const concurrencyLimit = 5
+
+// cacheKey deduplicates verification per (provider, secret): the SAME string
+// value under two different providers never shares a result (RESEARCH Open
+// Question 3).
+type cacheKey struct {
+	provider string
+	secret   string
+}
+
+// Run performs opt-in live verification over the reportable finding set,
+// labelling each finding whose rule ID has a registered verifier. It is the
+// public entry point used by the scan pipeline.
+//
+// For each verifiable finding it resolves the raw secret from the off-struct
+// side channel (rawByFP, keyed by fingerprint), verifies each distinct
+// (provider, secret) at most once under a bounded worker pool with a per-call
+// timeout, and writes findings[i].Verification in place. Findings whose rule ID
+// has no verifier are left unlabeled (Verification stays nil). A missing/empty
+// raw secret yields Unknown. Run NEVER returns an error and NEVER aborts the
+// scan — verification is label-only.
+func Run(ctx context.Context, findings []finding.Finding, rawByFP map[string]string) {
+	runWithRegistry(ctx, registry, findings, rawByFP)
+}
+
+// runWithRegistry is the testable core of Run, accepting an explicit registry so
+// unit tests can inject fake verifiers.
+func runWithRegistry(ctx context.Context, reg map[string]Verifier, findings []finding.Finding, rawByFP map[string]string) {
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(concurrencyLimit)
+
+	// cacheEntry holds an in-flight reservation: the FIRST worker to reserve a
+	// (provider, secret) computes the status; all others block on done and read
+	// the shared result. This guarantees each distinct (provider, secret) is
+	// verified at most once even under the worker pool.
+	type cacheEntry struct {
+		done   chan struct{}
+		status Status
+	}
+	var mu sync.Mutex
+	cache := map[cacheKey]*cacheEntry{}
+
+	for i := range findings {
+		i := i
+		f := findings[i]
+
+		v, ok := reg[f.RuleID]
+		if !ok {
+			// No verifier for this rule ID — leave the finding unlabeled.
+			continue
+		}
+		provider := v.Provider()
+
+		raw, hasRaw := rawByFP[f.Fingerprint]
+		if !hasRaw || raw == "" {
+			// Matched rule but no raw secret available → cannot call; Unknown.
+			findings[i].Verification = &finding.Verification{
+				Status:   string(Unknown),
+				Provider: provider,
+			}
+			continue
+		}
+
+		key := cacheKey{provider: provider, secret: raw}
+
+		g.Go(func() error {
+			mu.Lock()
+			entry, exists := cache[key]
+			if exists {
+				// Another worker owns this (provider, secret); wait for it.
+				mu.Unlock()
+				<-entry.done
+			} else {
+				// We own the verification for this key.
+				entry = &cacheEntry{done: make(chan struct{})}
+				cache[key] = entry
+				mu.Unlock()
+
+				callCtx, cancel := context.WithTimeout(ctx, perCallTimeout)
+				entry.status = v.Verify(callCtx, raw, f)
+				cancel()
+				close(entry.done)
+			}
+
+			findings[i].Verification = &finding.Verification{
+				Status:   string(entry.status),
+				Provider: provider,
+			}
+			return nil
+		})
+	}
+
+	// g.Wait()'s error is intentionally ignored: verification is label-only and
+	// must never error the scan.
+	_ = g.Wait()
+}
 
 // Status is the three-state verification outcome recorded on a finding.
 type Status string

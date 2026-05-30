@@ -132,3 +132,116 @@ func TestHookNonRepoFailsLoud(t *testing.T) {
 	_, _, code := runMimir(t, "hook", "install", dir)
 	assert.Equal(t, 2, code, "install in a non-git directory must exit 2")
 }
+
+// mimirBinDir installs a copy of the built test binary named exactly `mimir` into
+// a temp dir and returns that dir. The installed hook execs `mimir`, so prepending
+// this dir to PATH makes the hook resolve to the just-built binary (never a
+// globally-installed mimir, and never THIS project's repo).
+func mimirBinDir(t *testing.T) string {
+	t.Helper()
+	binDir := t.TempDir()
+	src, err := os.ReadFile(mimirTestBin) //nolint:gosec
+	require.NoError(t, err, "test binary must exist (built in TestMain)")
+	dst := filepath.Join(binDir, "mimir")
+	require.NoError(t, os.WriteFile(dst, src, 0755)) //nolint:gosec
+	return binDir
+}
+
+// commitInRepo drives a real `git commit` inside dir with the mimir test binary's
+// dir prepended to PATH (so the installed hook's `exec mimir scan --staged`
+// resolves to the built binary). Returns combined output and exit code.
+func commitInRepo(t *testing.T, dir string, extraArgs ...string) (string, int) {
+	t.Helper()
+	binDir := mimirBinDir(t)
+	args := append([]string{"-C", dir, "commit", "-m", "add staged change"}, extraArgs...)
+	cmd := exec.Command("git", args...) //nolint:gosec
+	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			code = exitErr.ExitCode()
+		} else {
+			code = -1
+		}
+	}
+	return string(out), code
+}
+
+// stageSecret writes name with content and stages it.
+func stageSecret(t *testing.T, dir, name, content string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0600))
+	gitCmd(t, dir, "add", name)
+}
+
+// hookSecret is an AWS access-key token that matches the aws-access-token rule and
+// is NOT suppressed by the global '.+EXAMPLE$' allowlist.
+const hookSecret = "AKIAFAKEKEYABCDE2345"
+
+// TestHookBlocksCommit installs the hook, stages a secret, and asserts a real
+// `git commit` is blocked (non-zero), with the finding named and NO raw secret in
+// the hook output (criterion 3, redact-at-boundary).
+func TestHookBlocksCommit(t *testing.T) {
+	dir := hookRepo(t)
+	_, _, code := runMimir(t, "hook", "install", dir)
+	require.Equal(t, 0, code)
+
+	stageSecret(t, dir, "leak.txt", "aws_access_key_id = "+hookSecret+"\n")
+	out, ccode := commitInRepo(t, dir)
+	assert.NotEqual(t, 0, ccode, "commit with a staged secret must be blocked")
+	assert.Contains(t, out, "aws-access-token", "hook output must name the finding")
+	assert.NotContains(t, out, hookSecret, "raw secret must never appear in hook output (Security V7)")
+}
+
+// TestHookRespectsInlineIgnore stages a secret on a `// mimir:ignore` line and
+// asserts the commit SUCCEEDS — inline-ignore honored end-to-end (criterion 3).
+func TestHookRespectsInlineIgnore(t *testing.T) {
+	dir := hookRepo(t)
+	_, _, code := runMimir(t, "hook", "install", dir)
+	require.Equal(t, 0, code)
+
+	stageSecret(t, dir, "leak.go", "key := \""+hookSecret+"\" // mimir:ignore\n")
+	out, ccode := commitInRepo(t, dir)
+	assert.Equalf(t, 0, ccode, "an inline-ignored staged secret must commit cleanly, out=%s", out)
+}
+
+// TestHookBypass asserts both honest bypasses: `git commit --no-verify` and the
+// persistent `git config hooks.mimir false` toggle; unsetting restores blocking (D-06).
+func TestHookBypass(t *testing.T) {
+	dir := hookRepo(t)
+	_, _, code := runMimir(t, "hook", "install", dir)
+	require.Equal(t, 0, code)
+	stageSecret(t, dir, "leak.txt", "aws_access_key_id = "+hookSecret+"\n")
+
+	// (a) --no-verify bypasses the hook entirely.
+	out, ccode := commitInRepo(t, dir, "--no-verify")
+	assert.Equalf(t, 0, ccode, "--no-verify must allow the commit, out=%s", out)
+
+	// Re-stage another secret for the config-toggle path (previous commit consumed the first).
+	stageSecret(t, dir, "leak2.txt", "aws_access_key_id = "+hookSecret+"\n")
+
+	// (b) hooks.mimir false bypasses; commit succeeds.
+	gitCmd(t, dir, "config", "hooks.mimir", "false")
+	out2, ccode2 := commitInRepo(t, dir)
+	assert.Equalf(t, 0, ccode2, "hooks.mimir false must allow the commit, out=%s", out2)
+
+	// (c) unsetting restores blocking.
+	gitCmd(t, dir, "config", "--unset", "hooks.mimir")
+	stageSecret(t, dir, "leak3.txt", "aws_access_key_id = "+hookSecret+"\n")
+	_, ccode3 := commitInRepo(t, dir)
+	assert.NotEqual(t, 0, ccode3, "after --unset, the hook must block again (D-06)")
+}
+
+// TestHookOffline asserts the installed hook body is offline: it contains no
+// `--verify` and scans `--staged` only (static guarantee, VERIFY-01).
+func TestHookOffline(t *testing.T) {
+	dir := hookRepo(t)
+	_, _, code := runMimir(t, "hook", "install", dir)
+	require.Equal(t, 0, code)
+	body, err := os.ReadFile(hookPath(t, dir)) //nolint:gosec
+	require.NoError(t, err)
+	s := string(body)
+	assert.NotContains(t, s, "--verify", "hook must never run live verification (offline, VERIFY-01)")
+	assert.Contains(t, s, "scan --staged", "hook must scan staged changes only")
+}

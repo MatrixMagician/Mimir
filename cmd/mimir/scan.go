@@ -13,6 +13,7 @@ import (
 	"github.com/MatrixMagician/mimir/internal/output"
 	"github.com/MatrixMagician/mimir/internal/scanner"
 	"github.com/MatrixMagician/mimir/internal/suppress"
+	"github.com/MatrixMagician/mimir/internal/verify"
 )
 
 var scanCmd = &cobra.Command{
@@ -34,6 +35,7 @@ func init() {
 	scanCmd.Flags().Bool("no-default-excludes", false, "Disable the shipped default path excludes (vendor/, node_modules/, *.min.js, lockfiles)")
 	scanCmd.Flags().Bool("git", false, "Scan current-branch git history for secrets (added-then-deleted included)")
 	scanCmd.Flags().Bool("staged", false, "Scan the staged diff (git diff --staged) — used by the pre-commit hook")
+	scanCmd.Flags().Bool("verify", false, "Live-verify AWS/GitHub findings (off by default; makes network calls; never used by the pre-commit hook)")
 	scanCmd.Flags().String("baseline", "", "Suppress findings present in this baseline JSON file; alert only on NEW findings (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().String("baseline-out", "", "Write the current reportable findings as a baseline JSON snapshot (e.g. .mimir-baseline.json)")
 	scanCmd.Flags().StringP("config", "c", "", "Path to custom config file (default: auto-discover .mimir.toml or use embedded config)")
@@ -106,18 +108,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 	var findings []finding.Finding
+	var raw map[string]string // fingerprint→raw-secret side channel (Plan 01), consumed by --verify below
 	var stats scanner.Stats
 	switch {
 	case gitMode:
-		// Raw side-channel discarded here; Plan 04-03 consumes it for --verify.
-		findings, _, stats, err = gitscan.ScanHistory(cmd.Context(), engine, scanRoot, showSuppressed)
+		findings, raw, stats, err = gitscan.ScanHistory(cmd.Context(), engine, scanRoot, showSuppressed)
 	case stagedMode:
-		// Raw side-channel discarded here; Plan 04-03 consumes it for --verify.
-		findings, _, stats, err = gitscan.ScanStaged(cmd.Context(), engine, scanRoot, showSuppressed)
+		findings, raw, stats, err = gitscan.ScanStaged(cmd.Context(), engine, scanRoot, showSuppressed)
 	default:
-		// The raw side-channel map is discarded here (Plan 04-03 consumes it to
-		// drive opt-in live verification); for now we only keep the build green.
-		findings, _, stats, err = s.Scan(cmd.Context(), paths)
+		findings, raw, stats, err = s.Scan(cmd.Context(), paths)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -156,6 +155,19 @@ func runScan(cmd *cobra.Command, args []string) error {
 		if !f.Suppressed {
 			newFindings = append(newFindings, f)
 		}
+	}
+
+	// 5c. Opt-in live verification (VERIFY-01): strictly label-only and OFF by
+	// default. Without --verify, verify.Run is never called → zero network
+	// (T-04-default) and the JSON stays byte-identical to OUT-02 (T-04-schema).
+	// It runs ONLY on the post-suppression reportable set (newFindings, never the
+	// full set — RESEARCH Anti-Pattern), consuming the Plan 01 raw side channel,
+	// and writes Verification in place. It NEVER touches the exit-code contract
+	// below (T-04-exit). The pre-commit hook never passes --verify (T-04-hook,
+	// guarded by TestHookOffline).
+	doVerify, _ := cmd.Flags().GetBool("verify")
+	if doVerify {
+		verify.Run(cmd.Context(), newFindings, raw)
 	}
 
 	if baselineOut, _ := cmd.Flags().GetString("baseline-out"); baselineOut != "" {

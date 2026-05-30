@@ -30,12 +30,13 @@ Accurately catch real leaked secrets — with few enough false positives that de
 - [x] Scan git history (past commits) for secrets, including deleted ones — Validated in Phase 3
 - [x] Scan only staged changes (for the pre-commit use case) — Validated in Phase 3
 - [x] Run as a pre-commit hook — block commits containing secrets — Validated in Phase 3
+- [x] Live-verify a few key providers in v1 (AWS, GitHub) — confirm a found credential is active — Validated in Phase 4
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] Live-verify a few key providers in v1 (AWS, GitHub) — confirm a found credential is active
+<!-- All v1 requirements validated. Next scope is v2 (deferred). -->
 
 ### Out of Scope
 
@@ -95,4 +96,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-30 after Phase 3 completion — Full Source Coverage shipped: git-history scanning (streamed, memory-bounded, finds deleted secrets), staged-changes scanning, and an offline pre-commit hook installer with an honest bypass. Phase 2 (false-positive control: inline ignore, `.mimirignore`, allowlists, baseline) also validated. Remaining v1 scope: opt-in live verification (AWS + GitHub) in Phase 4.*
+*Last updated: 2026-05-30 after Phase 4 completion — Opt-in live verification shipped: `--verify` (off by default, never in the pre-commit hook) confirms AWS (STS GetCallerIdentity, static creds, no ambient resolution) and GitHub (GET /user) credentials as active/inactive/unknown, with a per-secret cache, bounded concurrency, Retry-After backoff, 5s timeouts, and sanitized errors that never leak the secret. Detection engine unchanged. 14/14 threats verified closed. This completes ALL v1 requirements (25/25) — the milestone scope is done; remaining work is v2 (deferred).*

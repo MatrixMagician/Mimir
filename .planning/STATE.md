@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Forensic investigation complete
+status: ready_to_plan
+stopped_at: Phase 3 complete, ready to plan Phase 4
 last_updated: "2026-05-30T09:41:58.549Z"
 last_activity: 2026-05-30
 progress:
@@ -18,16 +18,16 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-22)
+See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Accurately catch real leaked secrets — with few enough false positives that developers trust it and keep it in their workflow.
-**Current focus:** Phase 03 — full-source-coverage-git-history-staged-pre-commit
+**Current focus:** Phase 4 — Opt-in Live Verification (AWS + GitHub)
 
 ## Current Position
 
 Phase: 4
 Plan: Not started
-Status: Executing Phase 03
+Status: Ready to plan Phase 4
 Last activity: 2026-05-30
 
 Progress: [██████████] 100%
@@ -88,7 +88,8 @@ None yet.
 
 [Issues that affect future work]
 
-- Research flags 3 phases for deeper research at planning time: Phase 1 (fingerprint scheme design), Phase 3 (git-history backend: `git log -p` shell-out vs go-git + memory bounds), Phase 4 (verification dependency weight + canary-tell detection).
+- Research flags Phase 4 for deeper research at planning time: verification dependency weight + canary-tell detection (Phase 1 fingerprint and Phase 3 git-history-backend research questions are now resolved/shipped).
+- [Phase 3] Untrusted git metadata (commit author/SHA, diff file paths) and managed-file writes are new trust boundaries: `sanitizeForTTY` (output) and `Lstat`+`O_NOFOLLOW` (hook installer) mitigate terminal-escape and symlink-follow attacks — keep this posture for any new git-sourced output or file writes.
 
 ## Deferred Items
 
@@ -100,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-29T13:40:55.914Z
-Stopped at: Forensic investigation complete
-Resume file: .planning/forensics/report-20260529-143953.md
+Last session: 2026-05-30
+Stopped at: Phase 3 complete and verified, ready to plan Phase 4
+Resume file: None

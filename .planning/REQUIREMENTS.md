@@ -50,9 +50,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Verification
 
-- [ ] **VERIFY-01**: User can opt in (`--verify`, off by default, never in pre-commit) to live-verify findings
-- [ ] **VERIFY-02**: Mimir verifies AWS and GitHub credentials via read-only calls (STS GetCallerIdentity, GET /user) with three-state classification (active/inactive/unknown)
-- [ ] **VERIFY-03**: Verification caches per distinct secret, honors rate-limit backoff, and never logs the secret value
+- [x] **VERIFY-01**: User can opt in (`--verify`, off by default, never in pre-commit) to live-verify findings
+- [x] **VERIFY-02**: Mimir verifies AWS and GitHub credentials via read-only calls (STS GetCallerIdentity, GET /user) with three-state classification (active/inactive/unknown)
+- [x] **VERIFY-03**: Verification caches per distinct secret, honors rate-limit backoff, and never logs the secret value
 
 ## v2 Requirements
 
@@ -119,9 +119,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SCAN-03 | Phase 3 | Complete |
 | SCAN-04 | Phase 3 | Complete |
 | IFACE-03 | Phase 3 | Complete |
-| VERIFY-01 | Phase 4 | Pending |
-| VERIFY-02 | Phase 4 | Pending |
-| VERIFY-03 | Phase 4 | Pending |
+| VERIFY-01 | Phase 4 | Complete |
+| VERIFY-02 | Phase 4 | Complete |
+| VERIFY-03 | Phase 4 | Complete |
 
 **Coverage:**
 

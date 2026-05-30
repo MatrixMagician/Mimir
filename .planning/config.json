@@ -55,7 +55,8 @@
   },
   "graphify": {
     "enabled": true,
-    "auto_update": true
+    "auto_update": true,
+    "build_timeout": 600
   },
   "context_window": 1000000,
   "model_profile_overrides": {

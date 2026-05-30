@@ -51,8 +51,15 @@ var definitiveRejectCodes = map[string]struct{}{
 const maxPairingReadBytes = 1 << 20 // 1 MiB
 
 // secretKeyRE matches a 40-char AWS secret access key (base64 alphabet without
-// padding). RE2 / linear-time, consistent with the engine's allowlist discipline.
-var secretKeyRE = regexp.MustCompile(`[A-Za-z0-9/+]{40}`)
+// padding) as a WHOLE token. RE2 / linear-time, consistent with the engine's
+// allowlist discipline.
+//
+// WR-06: the boundary guards (?:^|[^A-Za-z0-9/+]) and (?:[^A-Za-z0-9/+]|$) stop
+// a 40-char prefix of a LONGER base64 blob (e.g. a 60-char hash) from being
+// sliced out as a spurious candidate — FindAllStringSubmatch returns the inner
+// capture group (group 1), the true 40-char token only. This narrows the
+// candidate set and compounds the WR-02 false-inactive mitigation.
+var secretKeyRE = regexp.MustCompile(`(?:^|[^A-Za-z0-9/+])([A-Za-z0-9/+]{40})(?:[^A-Za-z0-9/+]|$)`)
 
 // secretKeyHintRE marks lines that look like a secret-key assignment, used to
 // prefer the nearest candidate when several 40-char tokens exist.
@@ -138,18 +145,26 @@ func findSecretKey(path string) (string, bool) {
 		if secretKeyHintRE.MatchString(line) {
 			hintLines = append(hintLines, i)
 		}
-		for _, m := range secretKeyRE.FindAllString(line, -1) {
-			candidates = append(candidates, candidate{value: m, line: i})
+		// WR-06: take capture group 1 — the bounded 40-char token — never the
+		// whole match (which includes a leading/trailing boundary byte).
+		for _, m := range secretKeyRE.FindAllStringSubmatch(line, -1) {
+			candidates = append(candidates, candidate{value: m[1], line: i})
 		}
 	}
 	if len(candidates) == 0 {
 		return "", false
 	}
 
-	// Prefer the candidate nearest a hint line (by line distance). With no
-	// hint, fall back to the first candidate.
+	// WR-02: require a secret-key HINT line to pair. Without a hint, the file's
+	// first 40-char base64 token is just as likely to be a hash/JWT segment/
+	// vendored blob as a real secret key; pairing it would send the wrong
+	// secret to STS, yield SignatureDoesNotMatch (a definitive reject), and
+	// report a genuinely-live access key as INACTIVE — a false negative on the
+	// highest-severity outcome. Returning ("", false) here yields Unknown
+	// instead, which is the correct three-state answer when we cannot
+	// confidently identify the pair.
 	if len(hintLines) == 0 {
-		return candidates[0].value, true
+		return "", false
 	}
 	best := candidates[0]
 	bestDist := lineDistance(best.line, hintLines)

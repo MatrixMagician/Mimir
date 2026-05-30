@@ -130,3 +130,32 @@ func TestAWSPairingFindsSecretKey(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, secretKey, got)
 }
+
+// TestAWSPairingRequiresHint is the WR-02 guard: with a 40-char base64 token but
+// NO secret-key hint line, pairing must refuse (→ Unknown), never silently send
+// an arbitrary blob to STS and risk reporting a live key as inactive.
+func TestAWSPairingRequiresHint(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "data.txt")
+	// A 40-char base64 blob with no hint anywhere (e.g. a hash or vendored key).
+	content := "checksum = abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123\n"
+	require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+
+	_, ok := findSecretKey(file)
+	assert.False(t, ok, "no hint line → must not pair (WR-02: avoid false inactive)")
+}
+
+// TestAWSPairingIgnoresLongerBlob is the WR-06 guard: a base64 blob LONGER than
+// 40 chars must not yield a spurious 40-char prefix candidate. With a hint line
+// present but only an over-length token, pairing finds no true 40-char token.
+func TestAWSPairingIgnoresLongerBlob(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "creds.txt")
+	// 60-char token on a hinted line — a 40-char prefix must NOT be paired.
+	const blob60 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123456789KLMNOPQRSTUVWXYZ"
+	content := "aws_secret_access_key = " + blob60 + "\n"
+	require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+
+	_, ok := findSecretKey(file)
+	assert.False(t, ok, "an over-length base64 blob must not produce a 40-char candidate (WR-06)")
+}

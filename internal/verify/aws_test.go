@@ -78,17 +78,43 @@ func TestNoAmbientCreds(t *testing.T) {
 
 // TestAWSPairingMissingSecretKey asserts that when no co-located secret access
 // key can be found in the finding's file, Verify returns Unknown (never
-// Inactive) and makes no call (Pitfall 7).
+// Inactive) and makes no call (Pitfall 7). The finding carries a REPO-RELATIVE
+// File resolved against scanRoot (CR-02), mirroring the real pipeline.
 func TestAWSPairingMissingSecretKey(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "config.txt")
-	// File contains the access key but NO 40-char base64 secret key.
-	require.NoError(t, os.WriteFile(file, []byte("aws_access_key_id = AKIAFAKEKEYABCDE2345\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.txt"),
+		[]byte("aws_access_key_id = AKIAFAKEKEYABCDE2345\n"), 0o600))
 
-	f := finding.Finding{RuleID: "aws-access-token", File: file}
+	f := finding.Finding{RuleID: "aws-access-token", File: "config.txt"}
 	v := awsVerifier{}
-	got := v.Verify(context.Background(), "AKIAFAKEKEYABCDE2345", f)
+	got := v.Verify(context.Background(), dir, "AKIAFAKEKEYABCDE2345", f)
 	assert.Equal(t, Unknown, got)
+}
+
+// TestAWSVerifyResolvesScanRoot is the CR-02 regression guard: Verify must join
+// scanRoot with the finding's repo-relative, forward-slash File to locate the
+// pairing file, NOT read it against the process CWD. We assert via the pairing
+// path: with a correct scanRoot the secret key is found (so the verifier would
+// proceed to a network call — we keep the access key invalid so no real call
+// matters); with the WRONG scanRoot the file is unreadable and the result is
+// Unknown with no call. The latter is exactly the silent-failure CR-02 fixes.
+func TestAWSVerifyResolvesScanRoot(t *testing.T) {
+	dir := t.TempDir()
+	const secretKey = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123"
+	content := "aws_access_key_id = AKIAFAKEKEYABCDE2345\naws_secret_access_key = " + secretKey + "\n"
+	// Nested repo-relative path with forward slashes, as scanner.go produces.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "config"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config", "creds.txt"), []byte(content), 0o600))
+
+	// Pairing resolves against scanRoot + FromSlash(File).
+	got, ok := findSecretKey(filepath.Join(dir, filepath.FromSlash("config/creds.txt")))
+	require.True(t, ok, "pairing must find the secret key under the joined scanRoot path")
+	assert.Equal(t, secretKey, got)
+
+	// A WRONG scanRoot makes the file unreadable → ("", false) → Unknown, never
+	// a false Inactive and never a network call.
+	_, ok = findSecretKey(filepath.Join(t.TempDir(), filepath.FromSlash("config/creds.txt")))
+	assert.False(t, ok, "wrong scanRoot must not resolve the pairing file")
 }
 
 // TestAWSPairingFindsSecretKey asserts the pairing helper locates a 40-char

@@ -26,7 +26,7 @@ type countingVerifier struct {
 
 func (c *countingVerifier) Provider() string { return c.provider }
 
-func (c *countingVerifier) Verify(ctx context.Context, raw string, f finding.Finding) Status {
+func (c *countingVerifier) Verify(ctx context.Context, scanRoot, raw string, f finding.Finding) Status {
 	c.mu.Lock()
 	if c.calls == nil {
 		c.calls = map[string]int{}
@@ -52,7 +52,7 @@ func TestCacheDedup(t *testing.T) {
 		rawByFP[fp] = secret
 	}
 
-	runWithRegistry(context.Background(), reg, findings, rawByFP)
+	runWithRegistry(context.Background(), reg, "", findings, rawByFP)
 
 	assert.Equal(t, int64(1), cv.total.Load(), "one call per distinct secret across 10 findings")
 	for i := range findings {
@@ -76,7 +76,7 @@ func TestCacheKeyIsProviderPlusSecret(t *testing.T) {
 	}
 	rawByFP := map[string]string{"fp-aws": shared, "fp-gh": shared}
 
-	runWithRegistry(context.Background(), reg, findings, rawByFP)
+	runWithRegistry(context.Background(), reg, "", findings, rawByFP)
 
 	assert.Equal(t, int64(1), aws.total.Load())
 	assert.Equal(t, int64(1), gh.total.Load())
@@ -95,7 +95,7 @@ func TestRunUnlabeledRuleIsNil(t *testing.T) {
 	}
 	rawByFP := map[string]string{"fp-gcp": "x", "fp-gh": "y"}
 
-	runWithRegistry(context.Background(), reg, findings, rawByFP)
+	runWithRegistry(context.Background(), reg, "", findings, rawByFP)
 
 	assert.Nil(t, findings[0].Verification, "unverifiable rule stays unlabeled")
 	require.NotNil(t, findings[1].Verification)
@@ -109,7 +109,7 @@ func TestRunMissingRawIsUnknown(t *testing.T) {
 	findings := []finding.Finding{{RuleID: "github-pat", Fingerprint: "fp-missing"}}
 	rawByFP := map[string]string{} // no raw for the fingerprint
 
-	runWithRegistry(context.Background(), reg, findings, rawByFP)
+	runWithRegistry(context.Background(), reg, "", findings, rawByFP)
 
 	require.NotNil(t, findings[0].Verification)
 	assert.Equal(t, string(Unknown), findings[0].Verification.Status)
@@ -121,7 +121,7 @@ func TestRunMissingRawIsUnknown(t *testing.T) {
 type failingVerifier struct{}
 
 func (failingVerifier) Provider() string { return "github" }
-func (failingVerifier) Verify(ctx context.Context, raw string, f finding.Finding) Status {
+func (failingVerifier) Verify(ctx context.Context, scanRoot, raw string, f finding.Finding) Status {
 	return Unknown
 }
 
@@ -133,7 +133,7 @@ func TestNoSecretInError(t *testing.T) {
 	findings := []finding.Finding{{RuleID: "github-pat", Fingerprint: "fp"}}
 	rawByFP := map[string]string{"fp": secret}
 
-	runWithRegistry(context.Background(), reg, findings, rawByFP)
+	runWithRegistry(context.Background(), reg, "", findings, rawByFP)
 
 	require.NotNil(t, findings[0].Verification)
 	assert.False(t, strings.Contains(findings[0].Verification.Status, secret))
@@ -149,7 +149,7 @@ func TestNoSecretInError(t *testing.T) {
 type panickingVerifier struct{}
 
 func (panickingVerifier) Provider() string { return "github" }
-func (panickingVerifier) Verify(ctx context.Context, raw string, f finding.Finding) Status {
+func (panickingVerifier) Verify(ctx context.Context, scanRoot, raw string, f finding.Finding) Status {
 	panic("verifier blew up on adversarial input")
 }
 
@@ -172,7 +172,7 @@ func TestPanicDoesNotDeadlock(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		runWithRegistry(context.Background(), reg, findings, rawByFP)
+		runWithRegistry(context.Background(), reg, "", findings, rawByFP)
 		close(done)
 	}()
 	select {

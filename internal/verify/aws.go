@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -60,8 +61,15 @@ var secretKeyHintRE = regexp.MustCompile(`(?i)(aws.{0,20}secret|secret_access_ke
 // Verify pairs the access key with a co-located secret key, then calls STS.
 // If no secret key is found, the result is Unknown (Pitfall 7) and no network
 // call is made. All error paths are sanitized — the secret never leaks.
-func (awsVerifier) Verify(ctx context.Context, raw string, f finding.Finding) Status {
-	secretKey, ok := findSecretKey(f.File)
+//
+// CR-02: f.File is a repo-relative, forward-slash path (built in scanner.go via
+// filepath.Rel(scanRoot, ...)). It is resolved against scanRoot — NOT the
+// process CWD — so pairing works regardless of the directory mimir is run from.
+// For --git/--staged findings the joined path has no on-disk counterpart;
+// findSecretKey's os.ReadFile then fails and returns ("", false), so the result
+// degrades gracefully to Unknown with no network call (never a false inactive).
+func (awsVerifier) Verify(ctx context.Context, scanRoot, raw string, f finding.Finding) Status {
+	secretKey, ok := findSecretKey(filepath.Join(scanRoot, filepath.FromSlash(f.File)))
 	if !ok {
 		// Cannot call STS without the pair; never claim inactive.
 		return Unknown

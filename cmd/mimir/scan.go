@@ -167,7 +167,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// guarded by TestHookOffline).
 	doVerify, _ := cmd.Flags().GetBool("verify")
 	if doVerify {
-		verify.Run(cmd.Context(), newFindings, raw)
+		// scanRoot is threaded so the AWS verifier resolves each finding's
+		// repo-relative File against the scan target rather than the process
+		// CWD (CR-02) — otherwise AWS pairing silently fails whenever mimir is
+		// run from outside the scanned directory.
+		verify.Run(cmd.Context(), scanRoot, newFindings, raw)
 	}
 
 	if baselineOut, _ := cmd.Flags().GetString("baseline-out"); baselineOut != "" {

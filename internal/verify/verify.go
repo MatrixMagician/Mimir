@@ -53,13 +53,19 @@ type cacheKey struct {
 // has no verifier are left unlabeled (Verification stays nil). A missing/empty
 // raw secret yields Unknown. Run NEVER returns an error and NEVER aborts the
 // scan — verification is label-only.
-func Run(ctx context.Context, findings []finding.Finding, rawByFP map[string]string) {
-	runWithRegistry(ctx, registry, findings, rawByFP)
+//
+// scanRoot is the directory the scan targeted (cmd/mimir resolveScanRoot). It is
+// threaded to the verifiers so the AWS pairing can resolve a finding's
+// repo-relative File against the actual scan root rather than the process CWD
+// (CR-02). For --git/--staged findings — whose File has no on-disk counterpart —
+// the verifier degrades gracefully to Unknown.
+func Run(ctx context.Context, scanRoot string, findings []finding.Finding, rawByFP map[string]string) {
+	runWithRegistry(ctx, registry, scanRoot, findings, rawByFP)
 }
 
 // runWithRegistry is the testable core of Run, accepting an explicit registry so
 // unit tests can inject fake verifiers.
-func runWithRegistry(ctx context.Context, reg map[string]Verifier, findings []finding.Finding, rawByFP map[string]string) {
+func runWithRegistry(ctx context.Context, reg map[string]Verifier, scanRoot string, findings []finding.Finding, rawByFP map[string]string) {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(concurrencyLimit)
 
@@ -128,7 +134,7 @@ func runWithRegistry(ctx context.Context, reg map[string]Verifier, findings []fi
 					}()
 					callCtx, cancel := context.WithTimeout(ctx, perCallTimeout)
 					defer cancel()
-					entry.status = v.Verify(callCtx, raw, f)
+					entry.status = v.Verify(callCtx, scanRoot, raw, f)
 				}()
 			}
 
@@ -173,7 +179,12 @@ type Verifier interface {
 	// Verify makes the read-only provider call for raw (the secret carried via
 	// the Plan 01 side channel) in the context of finding f, returning one of
 	// the three Status values. It must honor ctx's deadline/cancellation.
-	Verify(ctx context.Context, raw string, f finding.Finding) Status
+	//
+	// scanRoot is the directory the scan targeted; the AWS verifier joins it
+	// with f.File (a repo-relative path) to locate the on-disk file holding the
+	// co-located secret key (CR-02). Verifiers that need no filesystem access
+	// (GitHub) ignore it.
+	Verify(ctx context.Context, scanRoot, raw string, f finding.Finding) Status
 }
 
 // registry maps detection rule IDs to the verifier that can check them. Only

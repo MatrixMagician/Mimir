@@ -45,7 +45,7 @@ func TestGitHubClassify(t *testing.T) {
 			}))
 			defer srv.Close()
 			v := newGitHubVerifierForServer(srv)
-			got := v.Verify(context.Background(), ghFixtureToken, finding.Finding{})
+			got := v.Verify(context.Background(), "", ghFixtureToken, finding.Finding{})
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -65,7 +65,7 @@ func TestGitHubHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 	v := newGitHubVerifierForServer(srv)
-	v.Verify(context.Background(), ghFixtureToken, finding.Finding{})
+	v.Verify(context.Background(), "", ghFixtureToken, finding.Finding{})
 
 	assert.Equal(t, "Bearer "+ghFixtureToken, gotAuth)
 	assert.NotEmpty(t, gotUA, "User-Agent must be non-empty (omitting it yields 403)")
@@ -85,7 +85,7 @@ func TestRetryAfterOnce(t *testing.T) {
 	}))
 	defer srv.Close()
 	v := newGitHubVerifierForServer(srv)
-	got := v.Verify(context.Background(), ghFixtureToken, finding.Finding{})
+	got := v.Verify(context.Background(), "", ghFixtureToken, finding.Finding{})
 	assert.Equal(t, Unknown, got)
 	assert.Equal(t, 2, calls, "exactly one retry after Retry-After, then give up")
 }
@@ -105,7 +105,7 @@ func TestRetryAfterSucceedsSecond(t *testing.T) {
 	}))
 	defer srv.Close()
 	v := newGitHubVerifierForServer(srv)
-	got := v.Verify(context.Background(), ghFixtureToken, finding.Finding{})
+	got := v.Verify(context.Background(), "", ghFixtureToken, finding.Finding{})
 	assert.Equal(t, Active, got)
 	assert.Equal(t, 2, calls)
 }
@@ -120,7 +120,7 @@ func TestGitHubTimeout(t *testing.T) {
 	v := newGitHubVerifierForServer(srv)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	got := v.Verify(ctx, ghFixtureToken, finding.Finding{})
+	got := v.Verify(ctx, "", ghFixtureToken, finding.Finding{})
 	assert.Equal(t, Unknown, got)
 }
 
@@ -131,7 +131,7 @@ func TestGitHubNetworkError(t *testing.T) {
 	client := srv.Client()
 	srv.Close() // now connections will be refused
 	v := githubVerifier{baseURL: url, client: client}
-	got := v.Verify(context.Background(), ghFixtureToken, finding.Finding{})
+	got := v.Verify(context.Background(), "", ghFixtureToken, finding.Finding{})
 	assert.Equal(t, Unknown, got)
 }
 

@@ -41,7 +41,9 @@ const (
 
 // Verify makes the GET /user call and maps the outcome to a Status. It honors a
 // single Retry-After on a 403/429, then gives up (Unknown) — no retry storm.
-func (g githubVerifier) Verify(ctx context.Context, raw string, f finding.Finding) Status {
+func (g githubVerifier) Verify(ctx context.Context, scanRoot, raw string, f finding.Finding) Status {
+	// scanRoot is unused: the GitHub verifier needs no filesystem access — the
+	// token is self-contained and sent in the Authorization header.
 	st, _ := g.verify(ctx, raw)
 	return st
 }

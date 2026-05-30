@@ -56,6 +56,31 @@ type Finding struct {
 	CommitSHA    string `json:"commit_sha,omitempty"`
 	CommitAuthor string `json:"commit_author,omitempty"`
 	CommitDate   string `json:"commit_date,omitempty"` // RFC3339 from PatchHeader.AuthorDate
+
+	// Verification (Phase 4) carries the result of opt-in live verification
+	// (mimir scan --verify). Like CommitSHA above, it is populated AFTER New()
+	// returns — by internal/verify in a later wave — never inside New() and never
+	// by computeFingerprint, so the fingerprint stays content-based. It is a
+	// pointer with omitempty so non-verify scans leave it nil and the marshalled
+	// JSON is byte-identical to the frozen Phase 1 OUT-02 schema (a non-pointer
+	// struct would serialize "verification":{...} on every finding). It carries
+	// ONLY two non-secret enum strings (a three-state status and a provider name)
+	// — never a raw secret, preserving the redact-at-boundary invariant above.
+	Verification *Verification `json:"verification,omitempty"`
+}
+
+// Verification holds the result of an opt-in live verification check for a
+// finding (mimir scan --verify). It carries ONLY non-secret enum values and is
+// never part of computeFingerprint.
+//
+// SECURITY: This struct must NOT gain a secret-bearing field. The raw secret is
+// carried entirely off-struct (see internal/detect and internal/verify); only
+// the resulting status/provider enums are recorded here.
+type Verification struct {
+	// Status is the three-state verification outcome: "active" | "inactive" | "unknown".
+	Status string `json:"status"`
+	// Provider identifies which verifier produced the result: "aws" | "github".
+	Provider string `json:"provider"`
 }
 
 // minVisibleLen is the D-05 guardrail threshold: secrets shorter than this

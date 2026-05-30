@@ -172,6 +172,26 @@ func runScan(cmd *cobra.Command, args []string) error {
 		// CWD (CR-02) — otherwise AWS pairing silently fails whenever mimir is
 		// run from outside the scanned directory.
 		verify.Run(cmd.Context(), scanRoot, newFindings, raw)
+
+		// WR-01: verify.Run wrote Verification onto the newFindings COPIES, but
+		// under --show-suppressed the displayed slice is `findings` (the
+		// original), whose elements never received the pointer — so the tags
+		// would silently vanish. Back-propagate each result onto the matching
+		// original entry by fingerprint so --verify --show-suppressed shows the
+		// tags too. Fingerprints are content-based and unique per finding here.
+		if showSuppressed {
+			verifByFP := make(map[string]*finding.Verification, len(newFindings))
+			for i := range newFindings {
+				if newFindings[i].Verification != nil {
+					verifByFP[newFindings[i].Fingerprint] = newFindings[i].Verification
+				}
+			}
+			for i := range findings {
+				if v, ok := verifByFP[findings[i].Fingerprint]; ok {
+					findings[i].Verification = v
+				}
+			}
+		}
 	}
 
 	if baselineOut, _ := cmd.Flags().GetString("baseline-out"); baselineOut != "" {

@@ -24,6 +24,25 @@ func historyArgs(repoRoot string) []string {
 	return []string{"-C", repoRoot, "log", "-p", "-U0", "--full-history", "--no-color"}
 }
 
+// stagedArgs builds the argument slice for the staged-diff command — the source
+// the pre-commit hook invokes (SCAN-04, criterion 3).
+//
+//   - `-C repoRoot` runs git in the target repo without changing our cwd.
+//   - `diff --staged` emits the patch of what is staged for commit (index vs HEAD).
+//   - `-U0` gives zero context lines so only added/deleted lines appear (exact
+//     line attribution; mirrors historyArgs).
+//   - `--no-ext-diff` ignores any external diff driver (`diff.external`) the user
+//     may have configured, so we always parse machine-readable unified diff.
+//   - `--no-color` keeps the patch stream free of ANSI escapes for the parser.
+//
+// Like historyArgs, repoRoot is a distinct argument (never interpolated into a
+// shell string) — the command-injection mitigation for T-03-06 (Security V12).
+// Staged diffs carry no commit preamble, so the parsed PatchHeader is empty and
+// no commit metadata attaches to staged findings (Pitfall 5).
+func stagedArgs(repoRoot string) []string {
+	return []string{"-C", repoRoot, "diff", "-U0", "--no-ext-diff", "--no-color", "--staged"}
+}
+
 // startGit spawns `git <args...>` with a streamed stdout pipe and returns the
 // started command plus its stdout reader. The caller MUST consume stdout (e.g.
 // via gitdiff.Parse) and MUST call cmd.Wait() once the stream is drained — see

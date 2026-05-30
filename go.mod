@@ -6,6 +6,7 @@ require (
 	github.com/BobuSumisu/aho-corasick v1.0.3
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/fatih/color v1.19.0
+	github.com/gitleaks/go-gitdiff v0.9.1
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -14,7 +15,6 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/gitleaks/go-gitdiff v0.9.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

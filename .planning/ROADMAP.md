@@ -100,7 +100,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — shares internal/gitscan + cmd/mimir/scan.go)*
 
-- [ ] 03-02-PLAN.md — Staged slice (SCAN-04) + criterion-2 benchmark gate: `ScanStaged` over `git diff --staged` honoring inline-ignore, `--staged` flag + `--git`/`--staged` mutual exclusion, `BenchmarkHistoryMem` bounded-memory regression gate
+- [x] 03-02-PLAN.md — Staged slice (SCAN-04) + criterion-2 benchmark gate: `ScanStaged` over `git diff --staged` honoring inline-ignore, `--staged` flag + `--git`/`--staged` mutual exclusion, `BenchmarkHistoryMem` bounded-memory regression gate
 
 **Wave 3** *(blocked on Wave 2 — hook e2e exercises `mimir scan --staged`)*
 
@@ -133,5 +133,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Usable End-to-End Scanner | 3/3 | Complete   | 2026-05-22 |
 | 2. False-Positive Control (Suppression + Baseline) | 4/4 | Complete    | 2026-05-29 |
-| 3. Full Source Coverage (Git History + Staged + Pre-commit) | 1/3 | In Progress|  |
+| 3. Full Source Coverage (Git History + Staged + Pre-commit) | 2/3 | In Progress|  |
 | 4. Opt-in Live Verification (AWS + GitHub) | 0/TBD | Not started | - |

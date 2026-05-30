@@ -101,12 +101,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DET-03 | Phase 1 | Complete |
 | DET-04 | Phase 1 | Complete |
 | DET-05 | Phase 1 | Complete |
-| SCAN-01 | Phase 1 | Pending |
-| SCAN-02 | Phase 1 | Pending |
-| SCAN-05 | Phase 1 | Pending |
-| IFACE-01 | Phase 1 | Pending |
+| SCAN-01 | Phase 1 | Complete |
+| SCAN-02 | Phase 1 | Complete |
+| SCAN-05 | Phase 1 | Complete |
+| IFACE-01 | Phase 1 | Complete |
 | IFACE-02 | Phase 1 | Complete |
-| OUT-01 | Phase 1 | Pending |
+| OUT-01 | Phase 1 | Complete |
 | OUT-02 | Phase 1 | Complete |
 | OUT-03 | Phase 1 | Complete |
 | SUP-05 | Phase 1 | Complete |

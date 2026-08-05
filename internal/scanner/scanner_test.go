@@ -268,3 +268,32 @@ func TestSymlinkLoopTerminates(t *testing.T) {
 	require.NoError(t, ctx.Err(), "the walk must terminate, not spin until the deadline")
 	assert.Len(t, findings, 1, "the real file is reported once; the loop adds nothing")
 }
+
+// TestFileAsDirectTargetKeepsItsName pins the path reported when the scan target
+// IS a file rather than a directory (`mimir scan src/config.go`). scanFile
+// derives the reported path with filepath.Rel(root, file); with root == file
+// that returns ".", so the finding was reported at path "." and — because the
+// path is part of the fingerprint — the SAME secret got a different fingerprint
+// depending on whether the user named the file or its directory, so a baseline
+// recorded one way did not match the other.
+func TestFileAsDirectTargetKeepsItsName(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.go")
+	require.NoError(t, os.WriteFile(file, []byte("k = \"AKIAFAKEKEYABCDE2347\"\n"), 0o600))
+
+	s := newTestScanner(t)
+
+	viaFile, _, _, err := s.Scan(context.Background(), []string{file})
+	require.NoError(t, err)
+	require.Len(t, viaFile, 1)
+	assert.Equal(t, "config.go", viaFile[0].File,
+		"a file named directly must report its own name, not \".\"")
+
+	viaDir, _, _, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err)
+	require.Len(t, viaDir, 1)
+
+	assert.Equal(t, viaDir[0].Fingerprint, viaFile[0].Fingerprint,
+		"the same secret must fingerprint identically however the scan was invoked, "+
+			"or a baseline recorded one way silently fails to match the other")
+}

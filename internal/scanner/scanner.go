@@ -197,9 +197,16 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 				return nil
 			}
 
-			// Capture path for goroutine closure
+			// Capture path for goroutine closure. When the walk target IS this
+			// file (`mimir scan src/config.go`), the file's own directory is its
+			// root: filepath.Rel(file, file) is ".", which would report the
+			// finding at path "." and bake that into the fingerprint, making it
+			// useless in output and unstable across invocations.
 			filePath := path
 			rootPath := root
+			if rootPath == filePath {
+				rootPath = filepath.Dir(filePath)
+			}
 
 			g.Go(func() error {
 				findings, fileSuppressed, fileRaw, scanErr := s.scanFile(ctx, filePath, rootPath)

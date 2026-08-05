@@ -65,7 +65,7 @@ func scanPatch(ctx context.Context, engine *detect.Engine, args []string, repoRo
 	// pipe (Pitfall 2).
 	defer func() { _ = cmd.Wait() }()
 
-	findings, suppressed, raw, parseErr := parsePatch(stdout, engine, showSuppressed)
+	findings, suppressed, raw, filesScanned, parseErr := parsePatch(stdout, engine, showSuppressed)
 	if parseErr != nil {
 		// Reap before returning so a parse failure does not leak the process.
 		_ = cmd.Wait()
@@ -85,7 +85,10 @@ func scanPatch(ctx context.Context, engine *detect.Engine, args []string, repoRo
 	finding.Sort(deduped)
 
 	return deduped, raw, scanner.Stats{
-		FilesScanned: len(deduped),
+		// The count of FILES the patch touched, not the finding count — it feeds
+		// the "scanned N files" summary line, which must mean the same thing in
+		// every mode.
+		FilesScanned: filesScanned,
 		Suppressed:   suppressed,
 	}, nil
 }

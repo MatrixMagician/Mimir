@@ -29,6 +29,12 @@ type ScanSummary struct {
 	// treating finding_count==0 as "clean" must check this too: it is omitempty,
 	// so its presence in the JSON at all means the scan was incomplete.
 	FilesUnreadable int `json:"files_unreadable,omitempty"`
+
+	// FilesOversized and FilesBinary report files skipped by policy. Unlike
+	// files_unreadable they are not failures, but a consumer computing coverage
+	// needs them to know the scan did not read everything on disk.
+	FilesOversized int `json:"files_oversized,omitempty"`
+	FilesBinary    int `json:"files_binary,omitempty"`
 }
 
 // WriteJSON encodes findings and stats as a JSON ScanResult to w.
@@ -57,6 +63,8 @@ func WriteJSON(w io.Writer, findings []finding.Finding, stats scanner.Stats) err
 			PathsExcluded:   stats.PathsExcluded,
 			Suppressed:      suppressed,
 			FilesUnreadable: stats.FilesUnreadable,
+			FilesOversized:  stats.FilesOversized,
+			FilesBinary:     stats.FilesBinary,
 		},
 	}
 

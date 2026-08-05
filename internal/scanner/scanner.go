@@ -3,6 +3,7 @@ package scanner
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -39,6 +40,13 @@ type Stats struct {
 	// It is surfaced in the summary because an unscanned file is not a clean
 	// file: without it, "no findings" is indistinguishable from "I never looked".
 	FilesUnreadable int
+
+	// FilesOversized and FilesBinary count files skipped BY POLICY rather than
+	// by failure: past --max-file-size, and detected as binary. They are not
+	// errors and do not affect the exit code, but they are reported so that
+	// "no findings" is never mistaken for "everything was examined".
+	FilesOversized int
+	FilesBinary    int
 }
 
 // Scanner orchestrates the filesystem walk and detection engine.
@@ -87,6 +95,8 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	var filesScanned atomic.Int64
 	var pathsExcluded atomic.Int64
 	var filesUnreadable atomic.Int64
+	var filesOversized atomic.Int64
+	var filesBinary atomic.Int64
 
 	for _, root := range paths {
 		// go.mod pins go 1.25, where each loop iteration already has its own
@@ -140,10 +150,18 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 			// Check file size before enqueueing
 			info, statErr := d.Info()
 			if statErr != nil {
+				// We selected this path but cannot even stat it — that is a file
+				// we did not examine, not a clean one.
+				fmt.Fprintf(os.Stderr, "mimir: WARNING: could not stat %s: %v\n", path, statErr)
+				filesUnreadable.Add(1)
 				return nil
 			}
 			maxBytes := int64(s.cfg.MaxFileSizeMB) * 1024 * 1024
 			if maxBytes > 0 && info.Size() > maxBytes {
+				// A deliberate policy skip, not an error — but still a file we did
+				// not look inside, so it is counted and surfaced in the summary.
+				// Silently omitting it made "no findings" ambiguous.
+				filesOversized.Add(1)
 				if s.cfg.Verbose {
 					fmt.Fprintf(os.Stderr, "mimir: skipping oversized file %s (%d bytes > %d bytes limit)\n",
 						path, info.Size(), maxBytes)
@@ -157,6 +175,10 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 
 			g.Go(func() error {
 				findings, fileSuppressed, fileRaw, scanErr := s.scanFile(ctx, filePath, rootPath)
+				if errors.Is(scanErr, errSkippedBinary) {
+					filesBinary.Add(1)
+					return nil
+				}
 				if scanErr != nil {
 					// A file we could not read is NOT a clean file. Report it on
 					// stderr unconditionally (not just under --verbose) and count
@@ -206,6 +228,8 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 		FilesScanned:    int(filesScanned.Load()),
 		PathsExcluded:   int(pathsExcluded.Load()),
 		FilesUnreadable: int(filesUnreadable.Load()),
+		FilesOversized:  int(filesOversized.Load()),
+		FilesBinary:     int(filesBinary.Load()),
 		Duration:        time.Since(start),
 		Suppressed:      suppressedCounts,
 	}, nil
@@ -221,6 +245,11 @@ func relForMatch(root, p string) string {
 	}
 	return strings.TrimPrefix(filepath.ToSlash(rel), "./")
 }
+
+// errSkippedBinary marks a file skipped by the binary heuristic. It is a
+// sentinel, not a failure: the walker counts it separately from real read
+// errors, which affect the exit code.
+var errSkippedBinary = errors.New("skipped: binary file")
 
 // maxLineBytes returns the largest single line scanFile will hold, derived from
 // the configured file-size limit (a line cannot be longer than its file). It is
@@ -268,7 +297,10 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	header = header[:n]
 
 	if isBinary(header) {
-		return nil, nil, fileRaw, nil // skip binary files
+		// Binary files are skipped by policy (the NUL heuristic). Report it so
+		// the count reaches the summary: a mis-sniffed text file would otherwise
+		// vanish from the scan without a trace.
+		return nil, nil, fileRaw, errSkippedBinary
 	}
 
 	// Rewind and read full content line by line

@@ -83,6 +83,12 @@ summary and as `files_unreadable` in JSON, and fails — because "no findings"
 across a file nobody could open is not evidence of no secrets. Pass
 `--exit-zero` if you want CI to proceed anyway.
 
+Files skipped **by policy** — past `--max-file-size`, or detected as binary —
+are reported the same way (`files_oversized`, `files_binary`) but do *not* fail
+the scan, since skipping them is the configured behaviour rather than a failure.
+The counts are there so `finding_count: 0` is never mistaken for "every byte on
+disk was examined".
+
 ## Suppressing false positives
 
 Three layers, applied in this order:

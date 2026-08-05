@@ -152,6 +152,18 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		fmt.Fprintf(w, "%s\n", okStyle.Sprintf("✓ no findings · scanned %d files · %s",
 			stats.FilesScanned, durationStr))
 	}
+	// Policy skips are not failures, but they ARE files nobody looked inside, so
+	// the summary says so rather than letting the verdict imply full coverage.
+	if stats.FilesOversized > 0 || stats.FilesBinary > 0 {
+		var parts []string
+		if stats.FilesOversized > 0 {
+			parts = append(parts, fmt.Sprintf("%d over --max-file-size", stats.FilesOversized))
+		}
+		if stats.FilesBinary > 0 {
+			parts = append(parts, fmt.Sprintf("%d binary", stats.FilesBinary))
+		}
+		fmt.Fprintf(w, "  (skipped: %s)\n", strings.Join(parts, ", "))
+	}
 	// An unscanned file is not a clean file. Surface the count right after the
 	// verdict so "✓ no findings" is never read as full coverage when some files
 	// could not be read.

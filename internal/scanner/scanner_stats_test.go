@@ -87,3 +87,34 @@ func TestInlineIgnoreAnnotatesWhenShowSuppressed(t *testing.T) {
 	assert.Equal(t, "inline-ignore", findings[0].SuppressionReason)
 	assert.Equal(t, 1, stats.Suppressed["inline-ignore"])
 }
+
+// TestPolicySkipsAreCounted asserts that files skipped BY POLICY are still
+// reported. Both skips are intentional and must not fail the scan, but both
+// leave files unexamined — and neither was counted before, so a scan whose only
+// candidate files were an oversized log and a binary blob printed a bare
+// "✓ no findings" that read as full coverage.
+func TestPolicySkipsAreCounted(t *testing.T) {
+	dir := t.TempDir()
+
+	// Oversized: past the default 10 MB limit, with a secret beyond the cut.
+	big := make([]byte, 11*1024*1024)
+	for i := range big {
+		big[i] = 'x'
+	}
+	big = append(big, []byte("\naws_access_key_id = AKIAFAKEKEYABCDE2345\n")...)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.log"), big, 0o600))
+
+	// Binary: a NUL in the first 512 bytes trips the heuristic.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "blob.bin"),
+		append([]byte("PK\x00\x03"), []byte("aws_access_key_id = AKIAFAKEKEYABCDE2345\n")...), 0o600))
+
+	s := newTestScanner(t)
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err)
+
+	assert.Empty(t, findings, "both files are skipped by policy")
+	assert.Equal(t, 1, stats.FilesOversized, "the oversized file must be counted")
+	assert.Equal(t, 1, stats.FilesBinary, "the binary file must be counted")
+	assert.Equal(t, 0, stats.FilesUnreadable, "a policy skip is not a read failure")
+	assert.Equal(t, 0, stats.FilesScanned, "neither file was actually examined")
+}

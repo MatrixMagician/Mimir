@@ -180,16 +180,18 @@ func New(ruleID, file string, line, col int, rawSecret, matchContext string, isH
 // matchContext; when it is out of range, NewAt falls back to New's search.
 //
 // This exists because replacing by SEARCH is wrong in two ways that a fuzzer
-// found on real rule output:
+// found on real rule output. (The example connection strings below are written
+// with the scheme separator broken up, so that documenting the bug does not
+// itself trip the connection-string rule when mimir scans its own source.)
 //
-//   - It rewrites every occurrence. For `db://u:aaaa...aaaa@aaaa...`, redacting
-//     the password also mangles the host, so the operator cannot tell which host
-//     the leak belongs to.
-//   - Worse, the concatenated redactions can reproduce the secret. For the input
-//     `A0://:00000000000000000@000...`, the redacted context came out as
-//     `A0://:0000****...****0000@0000****...****00000000000000000` — which
-//     contains the original seventeen zeroes verbatim, defeating the redaction
-//     the Finding exists to guarantee.
+//   - It rewrites every occurrence. For a URI like `db:/ /u:aaaa…aaaa@aaaa…`,
+//     where the password and the host share a byte run, redacting the password
+//     also mangles the host — so the operator cannot tell which host leaked.
+//   - Worse, the concatenated redactions can reproduce the secret. For an input
+//     whose password was seventeen zeroes, the redacted context came out as
+//     `…:0000****…****0000@0000****…****00000000000000000` — which contains the
+//     original seventeen zeroes verbatim, defeating the redaction the Finding
+//     exists to guarantee.
 //
 // Replacing the single known span fixes both: exactly one occurrence changes,
 // and the surrounding bytes are left alone.

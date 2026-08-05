@@ -11,6 +11,11 @@
 # Fixture repos carrying intentionally-planted secrets.
 testdata/**
 
+# Fuzz corpora: seeds and saved crashers are, by construction, strings that
+# look like credentials. They live under a testdata/ dir inside each package,
+# so they need their own glob rather than the root testdata/** above.
+**/testdata/fuzz/**
+
 # Test files embed fake tokens as inputs and expectations.
 **/*_test.go
 

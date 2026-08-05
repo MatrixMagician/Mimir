@@ -424,6 +424,12 @@ func TestGitStagedMutuallyExclusive(t *testing.T) {
 // when a file was skipped: that is how a pre-commit hook waves through the one
 // file the key was in. --exit-zero (the documented CI soft mode) still forces 0.
 func TestIncompleteScanFailsLoud(t *testing.T) {
+	// chmod 000 is the portable way to make a file unreadable, but it does not
+	// work for root (which bypasses permission checks) or on Windows (where
+	// Go's FileMode does not map to NTFS ACLs, so the file stays readable).
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod does not restrict reads on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: chmod 000 does not prevent reads")
 	}

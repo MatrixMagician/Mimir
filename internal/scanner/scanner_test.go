@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +175,12 @@ func TestLongLineIsNotSilentlySkipped(t *testing.T) {
 // indistinguishable from "I never looked at the file your key was in" — and the
 // scan exits 0, so a pre-commit hook waves the commit through.
 func TestUnreadableFileIsCountedAndReported(t *testing.T) {
+	// chmod 000 is the portable way to make a file unreadable, but it does not
+	// work for root (which bypasses permission checks) or on Windows (where
+	// Go's FileMode does not map to NTFS ACLs, so the file stays readable).
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod does not restrict reads on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: chmod 000 does not prevent reads")
 	}

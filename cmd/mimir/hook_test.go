@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -35,8 +36,13 @@ func TestHookInstall(t *testing.T) {
 	hp := hookPath(t, dir)
 	info, err := os.Stat(hp)
 	require.NoError(t, err, "pre-commit hook file must exist")
-	// Owner execute bit must be set (0755 expected).
-	assert.NotZero(t, info.Mode().Perm()&0100, "hook must be executable")
+	// Owner execute bit must be set (0755 expected). Windows has no Unix
+	// permission bits — Go reports 0666/0444 from the read-only attribute — and
+	// git for Windows runs hooks through its bundled shell regardless, so the
+	// bit is meaningless there.
+	if runtime.GOOS != "windows" {
+		assert.NotZero(t, info.Mode().Perm()&0100, "hook must be executable")
+	}
 
 	body, err := os.ReadFile(hp) //nolint:gosec
 	require.NoError(t, err)

@@ -152,6 +152,13 @@ func WriteHuman(w io.Writer, findings []finding.Finding, stats scanner.Stats, no
 		fmt.Fprintf(w, "%s\n", okStyle.Sprintf("✓ no findings · scanned %d files · %s",
 			stats.FilesScanned, durationStr))
 	}
+	// An unscanned file is not a clean file. Surface the count right after the
+	// verdict so "✓ no findings" is never read as full coverage when some files
+	// could not be read.
+	if stats.FilesUnreadable > 0 {
+		fmt.Fprintf(w, "%s\n", warnStyle.Sprintf("⚠ %d file(s) could not be scanned — see warnings above; this scan is NOT complete",
+			stats.FilesUnreadable))
+	}
 	// D-11 transparency: always report suppression counts by reason when non-zero.
 	for _, reason := range []string{"inline-ignore", "allowlist", "baseline"} {
 		if n := stats.Suppressed[reason]; n > 0 {

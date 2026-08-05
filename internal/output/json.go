@@ -24,6 +24,11 @@ type ScanSummary struct {
 	DurationMs    int64          `json:"duration_ms"`
 	PathsExcluded int            `json:"paths_excluded,omitempty"` // D-13
 	Suppressed    map[string]int `json:"suppressed,omitempty"`     // D-11: reason -> count
+
+	// FilesUnreadable is the count of files that could not be read. Consumers
+	// treating finding_count==0 as "clean" must check this too: it is omitempty,
+	// so its presence in the JSON at all means the scan was incomplete.
+	FilesUnreadable int `json:"files_unreadable,omitempty"`
 }
 
 // WriteJSON encodes findings and stats as a JSON ScanResult to w.
@@ -46,11 +51,12 @@ func WriteJSON(w io.Writer, findings []finding.Finding, stats scanner.Stats) err
 	result := ScanResult{
 		Findings: findings,
 		Summary: ScanSummary{
-			FilesScanned:  stats.FilesScanned,
-			FindingCount:  len(findings),
-			DurationMs:    stats.Duration.Milliseconds(),
-			PathsExcluded: stats.PathsExcluded,
-			Suppressed:    suppressed,
+			FilesScanned:    stats.FilesScanned,
+			FindingCount:    len(findings),
+			DurationMs:      stats.Duration.Milliseconds(),
+			PathsExcluded:   stats.PathsExcluded,
+			Suppressed:      suppressed,
+			FilesUnreadable: stats.FilesUnreadable,
 		},
 	}
 

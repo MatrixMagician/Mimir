@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/mimir/internal/config"
@@ -139,4 +140,64 @@ func TestIsBinary(t *testing.T) {
 	assert.True(t, isBinary([]byte{'A', 'K', 'I', 'A', 0x00, 'F', 'A', 'K', 'E'}))
 	assert.False(t, isBinary([]byte("aws_access_key_id = AKIAFAKEKEY12345678")))
 	assert.False(t, isBinary([]byte{}))
+}
+
+// TestLongLineIsNotSilentlySkipped is the regression test for the worst failure
+// class this tool has: reporting "clean" without having looked.
+//
+// scanFile capped bufio's buffer at 64 KiB, so ANY file containing a longer line
+// failed with "token too long" and was skipped — silently, unless --verbose. A
+// minified bundle or single-line JSON blob with a key in it therefore scanned as
+// clean and exited 0. The git-aware sources never had the limit, so the same
+// repo reported differently depending on the flag.
+func TestLongLineIsNotSilentlySkipped(t *testing.T) {
+	dir := t.TempDir()
+	// One line well past the old 64 KiB ceiling, with the secret in the middle.
+	pad := strings.Repeat("var x=1;", 9000) // ~72 KiB either side
+	content := pad + "aws_access_key_id = AKIAFAKEKEYABCDE2345" + pad + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.js"), []byte(content), 0o600))
+
+	s := newTestScanner(t)
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, stats.FilesUnreadable,
+		"a long line must not make the file unreadable")
+	assert.Equal(t, 1, stats.FilesScanned, "the file must be counted as scanned")
+	require.NotEmpty(t, findings,
+		"the secret on a >64KiB line must be found, not silently skipped")
+}
+
+// TestUnreadableFileIsCountedAndReported asserts that a file we cannot read is
+// surfaced rather than swallowed. Without the count, "no findings" is
+// indistinguishable from "I never looked at the file your key was in" — and the
+// scan exits 0, so a pre-commit hook waves the commit through.
+func TestUnreadableFileIsCountedAndReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 does not prevent reads")
+	}
+	dir := t.TempDir()
+	unreadable := filepath.Join(dir, "secret.go")
+	require.NoError(t, os.WriteFile(unreadable, []byte("k = \"AKIAFAKEKEYABCDE2345\"\n"), 0o600))
+	require.NoError(t, os.Chmod(unreadable, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+
+	s := newTestScanner(t)
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err, "an unreadable file must not abort the whole scan")
+
+	assert.Empty(t, findings, "the secret is in the file we could not read")
+	assert.Equal(t, 1, stats.FilesUnreadable,
+		"an unscanned file must be counted, or a clean-looking scan hides it")
+}
+
+// TestMaxLineBytes pins the buffer ceiling's derivation. It tracks the
+// file-size limit because a line cannot exceed its file, and it must never fall
+// below bufio's starting buffer or grow unbounded when the limit is disabled.
+func TestMaxLineBytes(t *testing.T) {
+	assert.Equal(t, 10*1024*1024, maxLineBytes(10), "follows the configured MB limit")
+	assert.Equal(t, 64*1024, maxLineBytes(0)/(4*1024), "0 (unlimited) uses the absolute cap")
+	assert.GreaterOrEqual(t, maxLineBytes(0), 64*1024, "unlimited still has a ceiling")
+	assert.Equal(t, 64*1024, maxLineBytes(-1)/(4*1024), "negative is treated as unlimited")
+	assert.GreaterOrEqual(t, maxLineBytes(1), 64*1024, "never below bufio's starting buffer")
 }

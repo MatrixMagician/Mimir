@@ -33,6 +33,12 @@ type Stats struct {
 	// by the suppression layers landing in Plans 02–04.
 	PathsExcluded int
 	Suppressed    map[string]int
+
+	// FilesUnreadable counts files that were selected for scanning but could
+	// not be read (permissions, I/O errors, a line beyond the buffer ceiling).
+	// It is surfaced in the summary because an unscanned file is not a clean
+	// file: without it, "no findings" is indistinguishable from "I never looked".
+	FilesUnreadable int
 }
 
 // Scanner orchestrates the filesystem walk and detection engine.
@@ -80,6 +86,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	suppressedCounts := map[string]int{}
 	var filesScanned atomic.Int64
 	var pathsExcluded atomic.Int64
+	var filesUnreadable atomic.Int64
 
 	for _, root := range paths {
 		// go.mod pins go 1.25, where each loop iteration already has its own
@@ -151,10 +158,14 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 			g.Go(func() error {
 				findings, fileSuppressed, fileRaw, scanErr := s.scanFile(ctx, filePath, rootPath)
 				if scanErr != nil {
-					if s.cfg.Verbose {
-						fmt.Fprintf(os.Stderr, "mimir: error scanning %s: %v\n", filePath, scanErr)
-					}
-					return nil // file errors are non-fatal
+					// A file we could not read is NOT a clean file. Report it on
+					// stderr unconditionally (not just under --verbose) and count
+					// it, so "✓ no findings" can never quietly mean "I skipped the
+					// one file your key was in". Still non-fatal: one unreadable
+					// file must not abandon the rest of the scan.
+					fmt.Fprintf(os.Stderr, "mimir: WARNING: could not scan %s: %v\n", filePath, scanErr)
+					filesUnreadable.Add(1)
+					return nil
 				}
 				filesScanned.Add(1)
 				if len(findings) > 0 || len(fileSuppressed) > 0 {
@@ -192,10 +203,11 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	// inline-ignored finding regardless of the annotate-vs-drop branch, so the
 	// summary is accurate even when suppressed findings were dropped at scan time.
 	return allFindings, rawByFP, Stats{
-		FilesScanned:  int(filesScanned.Load()),
-		PathsExcluded: int(pathsExcluded.Load()),
-		Duration:      time.Since(start),
-		Suppressed:    suppressedCounts,
+		FilesScanned:    int(filesScanned.Load()),
+		PathsExcluded:   int(pathsExcluded.Load()),
+		FilesUnreadable: int(filesUnreadable.Load()),
+		Duration:        time.Since(start),
+		Suppressed:      suppressedCounts,
 	}, nil
 }
 
@@ -208,6 +220,26 @@ func relForMatch(root, p string) string {
 		rel = p
 	}
 	return strings.TrimPrefix(filepath.ToSlash(rel), "./")
+}
+
+// maxLineBytes returns the largest single line scanFile will hold, derived from
+// the configured file-size limit (a line cannot be longer than its file). It is
+// a ceiling for bufio's on-demand growth, not a preallocation, so ordinary files
+// still cost one 64 KiB buffer.
+//
+// With no file-size limit (0 = unlimited) it falls back to a generous absolute
+// cap rather than growing without bound, so a pathological one-line file cannot
+// exhaust memory.
+func maxLineBytes(maxFileSizeMB int) int {
+	const unlimitedCap = 256 << 20 // 256 MiB
+	if maxFileSizeMB <= 0 {
+		return unlimitedCap
+	}
+	n := maxFileSizeMB * 1024 * 1024
+	if n < 64*1024 {
+		return 64 * 1024 // never below bufio's starting buffer
+	}
+	return n
 }
 
 // scanFile reads a single file and returns its findings plus a per-reason
@@ -257,8 +289,14 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	suppressed := map[string]int{}
 	lineNum := 0
 	scanner := bufio.NewScanner(f)
-	// Increase scanner buffer for long lines
-	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	// Start small and let bufio grow the buffer on demand, up to the largest
+	// line we are willing to hold. The cap follows the file-size limit, because
+	// a line cannot exceed the file that contains it: a 64 KiB cap silently
+	// skipped ENTIRE FILES whose lines were longer, and minified JS, bundled
+	// assets, and single-line JSON routinely exceed that. A skipped file is the
+	// worst failure this tool has — it reports "clean" while a live key sits in
+	// the tree — so the ceiling has to clear realistic input.
+	scanner.Buffer(make([]byte, 64*1024), maxLineBytes(s.cfg.MaxFileSizeMB))
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():

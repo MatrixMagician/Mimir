@@ -112,8 +112,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// 2=error. Only NON-suppressed (NEW) findings flip the exit code (D-12,
 	// Pitfall 5) — a suppressed finding never fails CI, even under
 	// --show-suppressed.
+	//
+	// An INCOMPLETE scan also fails. If a file was selected but could not be
+	// read, "no findings" does not mean "no secrets" — it means we did not look.
+	// Exiting 0 there would let a pre-commit hook wave through the one file the
+	// key was in, which is the failure mode this tool exists to prevent.
+	// --exit-zero (the documented CI soft mode) still forces 0, so the escape
+	// hatch is unchanged and no new flag is needed.
 	exitZero, _ := cmd.Flags().GetBool("exit-zero")
-	if len(newFindings) > 0 && !exitZero {
+	if (len(newFindings) > 0 || stats.FilesUnreadable > 0) && !exitZero {
 		os.Exit(1)
 	}
 	return nil

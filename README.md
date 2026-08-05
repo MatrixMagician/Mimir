@@ -71,11 +71,17 @@ Mimir's exit code is the contract CI depends on:
 
 | Code | Meaning |
 | ---- | ------- |
-| `0`  | No reportable findings (or `--exit-zero` was passed) |
+| `0`  | No reportable findings, and every selected file was read (or `--exit-zero` was passed) |
 | `1`  | One or more reportable findings — the pre-commit hook blocks the commit |
 | `2`  | Error: bad flags, unreadable config, malformed baseline, not a git repo, missing `git` |
 
 Suppressed findings never flip the exit code, even under `--show-suppressed`.
+
+An **incomplete** scan also exits `1`. If a file was selected but could not be
+read (permissions, I/O error), mimir warns on stderr, reports the count in the
+summary and as `files_unreadable` in JSON, and fails — because "no findings"
+across a file nobody could open is not evidence of no secrets. Pass
+`--exit-zero` if you want CI to proceed anyway.
 
 ## Suppressing false positives
 

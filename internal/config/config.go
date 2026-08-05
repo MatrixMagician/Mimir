@@ -14,23 +14,23 @@ import (
 
 // Rule defines a single secret-detection rule with its compiled regex.
 type Rule struct {
-	ID             string      `toml:"id"`
-	Description    string      `toml:"description"`
-	Regex          string      `toml:"regex"`
-	CompiledRegex  *regexp.Regexp
-	Entropy        float64     `toml:"entropy"`
-	Keywords       []string    `toml:"keywords"`
-	SecretGroup    int         `toml:"secret_group"`
-	IsHeuristic    bool        `toml:"is_heuristic"`
-	Allowlists     []Allowlist `toml:"allowlists"`
+	ID            string `toml:"id"`
+	Description   string `toml:"description"`
+	Regex         string `toml:"regex"`
+	CompiledRegex *regexp.Regexp
+	Entropy       float64     `toml:"entropy"`
+	Keywords      []string    `toml:"keywords"`
+	SecretGroup   int         `toml:"secret_group"`
+	IsHeuristic   bool        `toml:"is_heuristic"`
+	Allowlists    []Allowlist `toml:"allowlists"`
 }
 
 // Allowlist holds regex patterns and/or path patterns used to suppress findings.
 type Allowlist struct {
-	Description     string         `toml:"description"`
-	Regexes         []string       `toml:"regexes"`
+	Description     string   `toml:"description"`
+	Regexes         []string `toml:"regexes"`
 	CompiledRegexes []*regexp.Regexp
-	Paths           []string       `toml:"paths"`
+	Paths           []string `toml:"paths"`
 	CompiledPaths   []*regexp.Regexp
 }
 
@@ -51,10 +51,10 @@ type Config struct {
 // rawConfig mirrors the TOML schema for decoding. After decoding, rules
 // and allowlists are validated and moved into Config.
 type rawConfig struct {
-	Title      string        `toml:"title"`
-	Extend     extendSection `toml:"extend"`
+	Title      string         `toml:"title"`
+	Extend     extendSection  `toml:"extend"`
 	Allowlists []rawAllowlist `toml:"allowlists"`
-	Rules      []rawRule     `toml:"rules"`
+	Rules      []rawRule      `toml:"rules"`
 }
 
 // extendSection represents the [extend] block in a user config.
@@ -103,9 +103,9 @@ func loadFromBytes(data []byte) (*Config, error) {
 }
 
 // LoadConfig implements three-level config precedence (CFG-02):
-//   1. --config flag (explicit path) — missing → error
-//   2. .mimir.toml in scanRoot directory — missing → fall through
-//   3. Embedded defaults
+//  1. --config flag (explicit path) — missing → error
+//  2. .mimir.toml in scanRoot directory — missing → fall through
+//  3. Embedded defaults
 //
 // When use_default=true is set in the user config, the embedded defaults are
 // merged with the user config rules (extend model, CFG-01/D-09).
@@ -281,5 +281,3 @@ func compile(raw *rawConfig) (*Config, error) {
 
 	return cfg, nil
 }
-
-

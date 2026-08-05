@@ -138,11 +138,17 @@ func (e *Engine) ScanLine(line, filePath string, lineNum int, raw map[string]str
 				continue
 			}
 
-			// Call finding.New() — this is the ONLY place rawSecret is used further.
-			// finding.New() enforces redact-at-boundary: rawSecret is never stored.
-			// Column is 1-indexed; the full match context is group 0.
-			f := finding.New(rule.ID, filePath, lineNum, loc[groupStart]+1,
-				rawSecret, line[loc[0]:loc[1]], rule.IsHeuristic)
+			// Call finding.NewAt() — this is the ONLY place rawSecret is used
+			// further. finding.NewAt() enforces redact-at-boundary: rawSecret is
+			// never stored. Column is 1-indexed; the full match context is group 0.
+			//
+			// The secret's offset WITHIN that context is passed explicitly so the
+			// redaction rewrites exactly the matched span. Letting the constructor
+			// re-find it by string search rewrites every occurrence, which mangles
+			// unrelated context (the host in a connection string) and can splice
+			// adjacent redactions back into the raw value — see finding.NewAt.
+			f := finding.NewAt(rule.ID, filePath, lineNum, loc[groupStart]+1,
+				rawSecret, line[loc[0]:loc[1]], loc[groupStart]-loc[0], rule.IsHeuristic)
 			// Side-channel: carry the raw secret off-struct, keyed by fingerprint,
 			// for opt-in live verification. Never stored on f, never serialized.
 			raw[f.Fingerprint] = rawSecret

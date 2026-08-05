@@ -156,6 +156,12 @@ func computeFingerprint(repoRelPath, ruleID, rawSecret string) string {
 // redacted representation. It is not stored in any field of the returned
 // Finding. After this function returns, rawSecret goes out of scope.
 //
+// New locates the secret inside matchContext by string search. Prefer NewAt when
+// the caller already knows the secret's offset (the detection engine does): a
+// search-based replacement rewrites EVERY occurrence of the byte sequence, which
+// mangles unrelated context and, on adversarial input, can splice neighbouring
+// redactions into something that reproduces the raw value. See NewAt.
+//
 // Parameters:
 //   - ruleID: the rule that matched (e.g. "aws-access-token")
 //   - file: repo-relative file path (forward-slash normalized)
@@ -165,12 +171,42 @@ func computeFingerprint(repoRelPath, ruleID, rawSecret string) string {
 //   - matchContext: surrounding line context (raw secret will be redacted here)
 //   - isHeuristic: true for generic-* entropy-based rules
 func New(ruleID, file string, line, col int, rawSecret, matchContext string, isHeuristic bool) Finding {
-	// Compute fingerprint from raw secret BEFORE redacting
-	fp := computeFingerprint(file, ruleID, rawSecret)
+	return newFinding(ruleID, file, line, col, rawSecret, isHeuristic,
+		strings.ReplaceAll(matchContext, rawSecret, RedactSecret(rawSecret)))
+}
 
-	// Redact the secret in the match context string
-	redactedMatch := strings.ReplaceAll(matchContext, rawSecret, RedactSecret(rawSecret))
+// NewAt is New for callers that know exactly where the secret sits inside the
+// match context. secretOffset is the byte offset of rawSecret within
+// matchContext; when it is out of range, NewAt falls back to New's search.
+//
+// This exists because replacing by SEARCH is wrong in two ways that a fuzzer
+// found on real rule output:
+//
+//   - It rewrites every occurrence. For `db://u:aaaa...aaaa@aaaa...`, redacting
+//     the password also mangles the host, so the operator cannot tell which host
+//     the leak belongs to.
+//   - Worse, the concatenated redactions can reproduce the secret. For the input
+//     `A0://:00000000000000000@000...`, the redacted context came out as
+//     `A0://:0000****...****0000@0000****...****00000000000000000` — which
+//     contains the original seventeen zeroes verbatim, defeating the redaction
+//     the Finding exists to guarantee.
+//
+// Replacing the single known span fixes both: exactly one occurrence changes,
+// and the surrounding bytes are left alone.
+func NewAt(ruleID, file string, line, col int, rawSecret, matchContext string, secretOffset int, isHeuristic bool) Finding {
+	end := secretOffset + len(rawSecret)
+	if secretOffset < 0 || end > len(matchContext) || matchContext[secretOffset:end] != rawSecret {
+		// Offset does not describe the secret — fall back rather than corrupt.
+		return New(ruleID, file, line, col, rawSecret, matchContext, isHeuristic)
+	}
+	return newFinding(ruleID, file, line, col, rawSecret, isHeuristic,
+		matchContext[:secretOffset]+RedactSecret(rawSecret)+matchContext[end:])
+}
 
+// newFinding is the shared constructor. redactedMatch is already redacted by the
+// caller; rawSecret is used ONLY for the fingerprint and the redacted Secret, and
+// is stored in no field.
+func newFinding(ruleID, file string, line, col int, rawSecret string, isHeuristic bool, redactedMatch string) Finding {
 	return Finding{
 		RuleID:      ruleID,
 		File:        file,
@@ -178,7 +214,7 @@ func New(ruleID, file string, line, col int, rawSecret, matchContext string, isH
 		Column:      col,
 		Match:       redactedMatch,
 		Secret:      RedactSecret(rawSecret),
-		Fingerprint: fp,
+		Fingerprint: computeFingerprint(file, ruleID, rawSecret),
 		IsHeuristic: isHeuristic,
 	}
 	// rawSecret goes out of scope here — not stored in any field

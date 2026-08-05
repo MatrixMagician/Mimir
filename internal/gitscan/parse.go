@@ -52,22 +52,15 @@ func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]find
 					// Line.Line; strip it so column math and regex anchors match
 					// the working-tree scanner's behavior.
 					line := strings.TrimSuffix(l.Line, "\n")
-					lineFindings := engine.ScanLine(line, f.NewName, lineNum, raw)
-					// Inline-ignore suppression (SUP-01/D-12) — COPY of the
-					// scanner.go scanFile block: the diff-added line IS the
-					// source line, so the identical directive check applies.
-					for i := range lineFindings {
-						if suppress.InlineSuppresses(line, lineFindings[i].RuleID) {
-							suppressed[suppress.InlineReason]++
-							if !showSuppressed {
-								continue // drop: do not append
-							}
-							lineFindings[i].Suppressed = true
-							lineFindings[i].SuppressionReason = suppress.InlineReason
-						}
-						attachCommitMeta(&lineFindings[i], f.PatchHeader)
-						out = append(out, lineFindings[i])
+					// The diff-added line IS the source line, so the identical
+					// inline-ignore check applies — shared with scanner.scanFile
+					// via suppress.FilterInline (SUP-01/D-12).
+					kept := suppress.FilterInline(line,
+						engine.ScanLine(line, f.NewName, lineNum, raw), suppressed, showSuppressed)
+					for i := range kept {
+						attachCommitMeta(&kept[i], f.PatchHeader)
 					}
+					out = append(out, kept...)
 					lineNum++
 				case gitdiff.OpContext:
 					lineNum++

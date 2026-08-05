@@ -7,17 +7,19 @@
 package finding
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
-	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // toSlash converts path separators to forward slashes unconditionally.
-// filepath.ToSlash is a no-op on non-Windows; this function normalizes
-// backslashes on all platforms for cross-platform fingerprint stability.
+// filepath.ToSlash is a no-op on non-Windows, so the ReplaceAll is what actually
+// normalizes backslashes on every platform — which is what fingerprint stability
+// across platforms requires.
 func toSlash(path string) string {
-	return filepath.ToSlash(strings.ReplaceAll(path, `\`, "/"))
+	return strings.ReplaceAll(path, `\`, "/")
 }
 
 // Finding represents a single detected secret. All secret values are redacted —
@@ -81,6 +83,21 @@ type Verification struct {
 	Status string `json:"status"`
 	// Provider identifies which verifier produced the result: "aws" | "github".
 	Provider string `json:"provider"`
+}
+
+// Sort orders findings deterministically by File → Line → Column, in place.
+// Every scan source (working tree, git history, staged diff) sorts through this
+// one function so output and baselines stay diff-stable across modes.
+func Sort(findings []Finding) {
+	slices.SortFunc(findings, func(a, b Finding) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Line, b.Line); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Column, b.Column)
+	})
 }
 
 // minVisibleLen is the D-05 guardrail threshold: secrets shorter than this

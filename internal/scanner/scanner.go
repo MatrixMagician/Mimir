@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -186,16 +185,8 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 		return nil, nil, Stats{}, err
 	}
 
-	// Sort deterministically: File → Line → Column
-	sort.Slice(allFindings, func(i, j int) bool {
-		if allFindings[i].File != allFindings[j].File {
-			return allFindings[i].File < allFindings[j].File
-		}
-		if allFindings[i].Line != allFindings[j].Line {
-			return allFindings[i].Line < allFindings[j].Line
-		}
-		return allFindings[i].Column < allFindings[j].Column
-	})
+	// Deterministic order: File → Line → Column.
+	finding.Sort(allFindings)
 
 	// suppressedCounts was accumulated during the walk (D-11). It counts every
 	// inline-ignored finding regardless of the annotate-vs-drop branch, so the
@@ -276,21 +267,11 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 		}
 		lineNum++
 		line := scanner.Text()
+		// Inline-ignore suppression (SUP-01/D-12): a finding whose own source
+		// line carries a mimir-ignore directive for its rule is counted and
+		// either dropped (default) or annotated-and-kept (--show-suppressed).
 		lineFindings := s.engine.ScanLine(line, relPath, lineNum, fileRaw)
-		// Inline-ignore suppression (SUP-01/D-12): if a finding's own source
-		// line carries a mimir-ignore directive for its rule, count it and
-		// either drop it (default) or annotate-and-keep (--show-suppressed).
-		for i := range lineFindings {
-			if suppress.InlineSuppresses(line, lineFindings[i].RuleID) {
-				suppressed[suppress.InlineReason]++
-				if !s.ShowSuppressed {
-					continue // drop: do not append
-				}
-				lineFindings[i].Suppressed = true
-				lineFindings[i].SuppressionReason = suppress.InlineReason
-			}
-			findings = append(findings, lineFindings[i])
-		}
+		findings = append(findings, suppress.FilterInline(line, lineFindings, suppressed, s.ShowSuppressed)...)
 	}
 	if err := scanner.Err(); err != nil {
 		return findings, suppressed, fileRaw, err

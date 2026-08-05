@@ -8,7 +8,6 @@ package gitscan
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/MatrixMagician/mimir/internal/detect"
 	"github.com/MatrixMagician/mimir/internal/finding"
@@ -19,19 +18,45 @@ import (
 // including secrets that were added in a past commit and later deleted (SCAN-03
 // criterion 1). It streams `git log -p -U0 --full-history --no-color` through
 // go-gitdiff, scans each added line with engine, attaches commit provenance
-// (D-08), dedups by content fingerprint (D-09), and returns findings sorted
-// deterministically.
+// (D-08), and dedups by content fingerprint (D-09).
 //
 // It returns a non-nil error — surfaced by runScan as exit 2 — when git is
 // absent or repoRoot is not a git repository (Pitfall 4: never silently report
 // "clean"). The engine is reused as-is (stateless, goroutine-safe); no new
 // engine is constructed here.
+func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
+	return scanPatch(ctx, engine, historyArgs(repoRoot), repoRoot, "history", showSuppressed)
+}
+
+// ScanStaged scans the staged diff of repoRoot (`git diff --staged`) for secrets
+// — the source the pre-commit hook invokes (SCAN-04, criterion 3). It streams the
+// patch through the SAME parse loop as ScanHistory, so inline `// mimir:ignore`
+// is honored on staged lines exactly as in the working-tree scanner.
+//
+// Staged diffs carry no commit preamble, so every PatchHeader is empty and
+// attachCommitMeta (Pitfall 5) leaves the omitempty commit fields unset — staged
+// findings therefore have an empty CommitSHA and OUT-02 stays byte-identical for
+// non-history scans. There is no cross-commit dedup (a single diff), but the
+// content-fingerprint dedup is reused unchanged: it is a no-op for distinct
+// secrets and harmlessly collapses an exact-duplicate staged line.
+func ScanStaged(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
+	return scanPatch(ctx, engine, stagedArgs(repoRoot), repoRoot, "staged", showSuppressed)
+}
+
+// scanPatch is the shared body of both git-aware sources: run git, stream the
+// patch through the parser, dedup, and sort. Only the argument slice and the
+// error wording differ between modes (mode names the source in those errors).
+//
 // The returned raw map (fingerprint→raw secret) is the off-struct side channel
 // for opt-in live verification; it is keyed by the same fingerprint that survives
 // dedup, is NEVER stored on a Finding or serialized, and is non-nil so callers
 // may range it safely.
-func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
-	cmd, stdout, err := startGit(ctx, historyArgs(repoRoot))
+//
+// Like the working-tree source it fails loud (non-nil error → exit 2) when git
+// is absent or repoRoot is not a git repository (Pitfall 4), never silently
+// reporting "clean".
+func scanPatch(ctx context.Context, engine *detect.Engine, args []string, repoRoot, mode string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
+	cmd, stdout, err := startGit(ctx, args)
 	if err != nil {
 		return nil, nil, scanner.Stats{}, err
 	}
@@ -44,93 +69,25 @@ func ScanHistory(ctx context.Context, engine *detect.Engine, repoRoot string, sh
 	if parseErr != nil {
 		// Reap before returning so a parse failure does not leak the process.
 		_ = cmd.Wait()
-		return nil, nil, scanner.Stats{}, fmt.Errorf("parsing git history patch: %w", parseErr)
+		return nil, nil, scanner.Stats{}, fmt.Errorf("parsing git %s patch: %w", mode, parseErr)
 	}
 
 	// Fail loud on a non-zero git exit (e.g. repoRoot is not a git repo). We must
 	// Wait() explicitly here to read the exit status; the deferred Wait then
 	// becomes a harmless no-op.
 	if waitErr := cmd.Wait(); waitErr != nil {
-		return nil, nil, scanner.Stats{}, fmt.Errorf("git history scan failed (is %q a git repository?): %w", repoRoot, waitErr)
+		return nil, nil, scanner.Stats{}, fmt.Errorf("git %s scan failed (is %q a git repository?): %w", mode, repoRoot, waitErr)
 	}
 
 	deduped := dedupByFingerprint(findings)
+	// Deterministic order: File → Line → Column (shared with scanner.Scan so
+	// output and baselines stay diff-stable across modes).
+	finding.Sort(deduped)
 
-	// Deterministic order: File → Line → Column (mirrors scanner.Scan so output
-	// and baselines stay diff-stable across modes).
-	sort.Slice(deduped, func(i, j int) bool {
-		if deduped[i].File != deduped[j].File {
-			return deduped[i].File < deduped[j].File
-		}
-		if deduped[i].Line != deduped[j].Line {
-			return deduped[i].Line < deduped[j].Line
-		}
-		return deduped[i].Column < deduped[j].Column
-	})
-
-	stats := scanner.Stats{
+	return deduped, raw, scanner.Stats{
 		FilesScanned: len(deduped),
 		Suppressed:   suppressed,
-	}
-	return deduped, raw, stats, nil
-}
-
-// ScanStaged scans the staged diff of repoRoot (`git diff --staged`) for secrets
-// — the source the pre-commit hook invokes (SCAN-04, criterion 3). It streams the
-// patch through the SAME parse loop as ScanHistory (parsePatch: gitdiff.Parse →
-// OpAdd → engine.ScanLine → inline-ignore), so inline `// mimir:ignore` is honored
-// on staged lines exactly as in the working-tree scanner.
-//
-// Staged diffs carry no commit preamble, so every PatchHeader is empty and
-// attachCommitMeta (Pitfall 5) leaves the omitempty commit fields unset — staged
-// findings therefore have an empty CommitSHA and OUT-02 stays byte-identical for
-// non-history scans. There is no cross-commit dedup (a single diff), but the
-// content-fingerprint dedup is reused unchanged: it is a no-op for distinct
-// secrets and harmlessly collapses an exact-duplicate staged line.
-//
-// Like ScanHistory it fails loud (non-nil error → exit 2) when git is absent or
-// repoRoot is not a git repository (Pitfall 4), never silently reporting "clean".
-// The returned raw map (fingerprint→raw secret) is the off-struct side channel
-// for opt-in live verification; it is keyed by finding fingerprint, NEVER stored
-// on a Finding or serialized, and non-nil so callers may range it safely.
-func ScanStaged(ctx context.Context, engine *detect.Engine, repoRoot string, showSuppressed bool) ([]finding.Finding, map[string]string, scanner.Stats, error) {
-	cmd, stdout, err := startGit(ctx, stagedArgs(repoRoot))
-	if err != nil {
-		return nil, nil, scanner.Stats{}, err
-	}
-	// Always reap the git process. parsePatch drains stdout fully, so Wait will
-	// not block on an unread pipe (Pitfall 2).
-	defer func() { _ = cmd.Wait() }()
-
-	findings, suppressed, raw, parseErr := parsePatch(stdout, engine, showSuppressed)
-	if parseErr != nil {
-		_ = cmd.Wait()
-		return nil, nil, scanner.Stats{}, fmt.Errorf("parsing staged diff patch: %w", parseErr)
-	}
-
-	// Fail loud on a non-zero git exit (e.g. repoRoot is not a git repo).
-	if waitErr := cmd.Wait(); waitErr != nil {
-		return nil, nil, scanner.Stats{}, fmt.Errorf("git staged scan failed (is %q a git repository?): %w", repoRoot, waitErr)
-	}
-
-	deduped := dedupByFingerprint(findings)
-
-	// Deterministic order: File → Line → Column (mirrors ScanHistory/scanner.Scan).
-	sort.Slice(deduped, func(i, j int) bool {
-		if deduped[i].File != deduped[j].File {
-			return deduped[i].File < deduped[j].File
-		}
-		if deduped[i].Line != deduped[j].Line {
-			return deduped[i].Line < deduped[j].Line
-		}
-		return deduped[i].Column < deduped[j].Column
-	})
-
-	stats := scanner.Stats{
-		FilesScanned: len(deduped),
-		Suppressed:   suppressed,
-	}
-	return deduped, raw, stats, nil
+	}, nil
 }
 
 // dedupByFingerprint collapses occurrences of the same secret (same content

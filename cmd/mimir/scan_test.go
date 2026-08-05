@@ -297,15 +297,35 @@ func gitCmd(t *testing.T, dir string, args ...string) {
 	require.NoErrorf(t, err, "git %v failed: %s", args, string(out))
 }
 
-// newGitFixtureRepo builds a temp git repo where a secret is added in commit 1
-// and the file is deleted in commit 2 (the added-then-deleted history case).
-func newGitFixtureRepo(t *testing.T) string {
+// initGitRepo creates a temp git repo with deterministic identity/config so
+// commit metadata is stable and no global git config interferes. Shared by every
+// git fixture builder in this package (scan and hook tests alike).
+func initGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	gitCmd(t, dir, "init", "-q", "-b", "main")
 	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
 	gitCmd(t, dir, "config", "user.name", "Mimir Test")
 	gitCmd(t, dir, "config", "commit.gpgsign", "false")
+	return dir
+}
+
+// initGitRepoWithHEAD creates a repo with one initial commit, so it has a HEAD
+// for `git diff --staged` to diff against.
+func initGitRepoWithHEAD(t *testing.T) string {
+	t.Helper()
+	dir := initGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".keep"), []byte("init\n"), 0600))
+	gitCmd(t, dir, "add", ".keep")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+	return dir
+}
+
+// newGitFixtureRepo builds a temp git repo where a secret is added in commit 1
+// and the file is deleted in commit 2 (the added-then-deleted history case).
+func newGitFixtureRepo(t *testing.T) string {
+	t.Helper()
+	dir := initGitRepo(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "leak.txt"),
 		[]byte("aws_access_key_id = AKIAFAKEKEYABCDE2345\n"), 0600))
 	gitCmd(t, dir, "add", "leak.txt")
@@ -341,14 +361,7 @@ func TestGitModeNonRepoFailsLoud(t *testing.T) {
 // has a HEAD to diff against and the staged line is reported.
 func newStagedFixtureRepo(t *testing.T, name, content string) string {
 	t.Helper()
-	dir := t.TempDir()
-	gitCmd(t, dir, "init", "-q", "-b", "main")
-	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
-	gitCmd(t, dir, "config", "user.name", "Mimir Test")
-	gitCmd(t, dir, "config", "commit.gpgsign", "false")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".keep"), []byte("init\n"), 0600))
-	gitCmd(t, dir, "add", ".keep")
-	gitCmd(t, dir, "commit", "-q", "-m", "init")
+	dir := initGitRepoWithHEAD(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0600))
 	gitCmd(t, dir, "add", name)
 	return dir

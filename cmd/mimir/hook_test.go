@@ -11,21 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// hookRepo creates a temp git repo with deterministic identity and an initial
-// commit so it has a HEAD to diff staged changes against.
-func hookRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	gitCmd(t, dir, "init", "-q", "-b", "main")
-	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
-	gitCmd(t, dir, "config", "user.name", "Mimir Test")
-	gitCmd(t, dir, "config", "commit.gpgsign", "false")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".keep"), []byte("init\n"), 0600))
-	gitCmd(t, dir, "add", ".keep")
-	gitCmd(t, dir, "commit", "-q", "-m", "init")
-	return dir
-}
-
 // hookPath resolves the installed pre-commit hook path for a repo using the same
 // `git rev-parse --git-path hooks` mechanism the installer uses, so the test does
 // not hardcode `.git/hooks` either.
@@ -43,7 +28,7 @@ func hookPath(t *testing.T, dir string) string {
 // TestHookInstall installs the managed hook and asserts it exists, is executable,
 // and carries the managed marker, the hooks.mimir off-switch, and `scan --staged`.
 func TestHookInstall(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	_, stderr, code := runMimir(t, "hook", "install", dir)
 	require.Equalf(t, 0, code, "install must succeed, stderr=%s", stderr)
 
@@ -65,7 +50,7 @@ func TestHookInstall(t *testing.T) {
 // TestHookInstallRefusesOverwrite refuses to clobber a foreign pre-commit hook
 // without --force, and overwrites it with --force (D-05).
 func TestHookInstallRefusesOverwrite(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	hp := hookPath(t, dir)
 	require.NoError(t, os.MkdirAll(filepath.Dir(hp), 0755))
 	foreign := "#!/bin/sh\necho foreign hook\n"
@@ -92,7 +77,7 @@ func TestHookInstallRefusesOverwrite(t *testing.T) {
 // With --force the symlink is replaced by a regular managed file and the target
 // is left untouched.
 func TestHookInstallRefusesSymlink(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	hp := hookPath(t, dir)
 	require.NoError(t, os.MkdirAll(filepath.Dir(hp), 0755))
 
@@ -127,7 +112,7 @@ func TestHookInstallRefusesSymlink(t *testing.T) {
 // foreign one (marker-line check).
 func TestHookUninstallManagedOnly(t *testing.T) {
 	// Managed: install then uninstall removes it.
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	_, _, code := runMimir(t, "hook", "install", dir)
 	require.Equal(t, 0, code)
 	hp := hookPath(t, dir)
@@ -137,7 +122,7 @@ func TestHookUninstallManagedOnly(t *testing.T) {
 	assert.NoFileExists(t, hp, "managed hook must be removed")
 
 	// Foreign: uninstall refuses and leaves it intact.
-	dir2 := hookRepo(t)
+	dir2 := initGitRepoWithHEAD(t)
 	hp2 := hookPath(t, dir2)
 	require.NoError(t, os.MkdirAll(filepath.Dir(hp2), 0755))
 	foreign := "#!/bin/sh\necho foreign\n"
@@ -151,7 +136,7 @@ func TestHookUninstallManagedOnly(t *testing.T) {
 
 // TestHookStatus reports installed/not-installed accurately before and after install.
 func TestHookStatus(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	out, _, _ := runMimir(t, "hook", "status", dir)
 	assert.Contains(t, strings.ToLower(out), "not installed", "status before install must say not installed")
 
@@ -220,7 +205,7 @@ const hookSecret = "AKIAFAKEKEYABCDE2345"
 // `git commit` is blocked (non-zero), with the finding named and NO raw secret in
 // the hook output (criterion 3, redact-at-boundary).
 func TestHookBlocksCommit(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	_, _, code := runMimir(t, "hook", "install", dir)
 	require.Equal(t, 0, code)
 
@@ -234,7 +219,7 @@ func TestHookBlocksCommit(t *testing.T) {
 // TestHookRespectsInlineIgnore stages a secret on a `// mimir:ignore` line and
 // asserts the commit SUCCEEDS — inline-ignore honored end-to-end (criterion 3).
 func TestHookRespectsInlineIgnore(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	_, _, code := runMimir(t, "hook", "install", dir)
 	require.Equal(t, 0, code)
 
@@ -246,7 +231,7 @@ func TestHookRespectsInlineIgnore(t *testing.T) {
 // TestHookBypass asserts both honest bypasses: `git commit --no-verify` and the
 // persistent `git config hooks.mimir false` toggle; unsetting restores blocking (D-06).
 func TestHookBypass(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	_, _, code := runMimir(t, "hook", "install", dir)
 	require.Equal(t, 0, code)
 	stageSecret(t, dir, "leak.txt", "aws_access_key_id = "+hookSecret+"\n")
@@ -273,7 +258,7 @@ func TestHookBypass(t *testing.T) {
 // TestHookOffline asserts the installed hook body is offline: it contains no
 // `--verify` and scans `--staged` only (static guarantee, VERIFY-01).
 func TestHookOffline(t *testing.T) {
-	dir := hookRepo(t)
+	dir := initGitRepoWithHEAD(t)
 	_, _, code := runMimir(t, "hook", "install", dir)
 	require.Equal(t, 0, code)
 	body, err := os.ReadFile(hookPath(t, dir)) //nolint:gosec

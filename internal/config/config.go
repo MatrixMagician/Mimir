@@ -163,9 +163,17 @@ func parseBytes(data []byte) (*rawConfig, error) {
 }
 
 // mergeConfigs merges an overlay config on top of a base config.
-// The overlay's rules are appended after the base rules.
-// disabled_rules from the overlay are removed from the merged result.
-// The overlay's global allowlists are merged with the base.
+//
+// Rules are keyed by ID with LAST-WINS semantics: an overlay rule whose ID
+// matches a base rule REPLACES it in place (keeping the base's position), and an
+// overlay rule with a new ID is appended. Without this, redefining a shipped rule
+// — the natural way to tighten one under `use_default = true` — left both rules
+// active, so every match was reported twice and written twice into a baseline.
+// Copying the shipped config/mimir.toml as a project .mimir.toml (it carries
+// `use_default = true`) duplicated the entire default ruleset against itself.
+//
+// disabled_rules from the overlay are then removed from the merged result, and
+// the overlay's global allowlists are appended to the base's.
 func mergeConfigs(base, overlay *rawConfig) *rawConfig {
 	merged := &rawConfig{
 		Title: base.Title,
@@ -174,10 +182,21 @@ func mergeConfigs(base, overlay *rawConfig) *rawConfig {
 		Extend: overlay.Extend,
 	}
 
-	// Start with base rules, append overlay rules
 	merged.Rules = make([]rawRule, 0, len(base.Rules)+len(overlay.Rules))
 	merged.Rules = append(merged.Rules, base.Rules...)
-	merged.Rules = append(merged.Rules, overlay.Rules...)
+
+	posByID := make(map[string]int, len(merged.Rules))
+	for i, r := range merged.Rules {
+		posByID[r.ID] = i
+	}
+	for _, r := range overlay.Rules {
+		if pos, exists := posByID[r.ID]; exists {
+			merged.Rules[pos] = r // override in place
+			continue
+		}
+		posByID[r.ID] = len(merged.Rules)
+		merged.Rules = append(merged.Rules, r)
+	}
 
 	// Apply disabled_rules filter
 	if len(overlay.Extend.DisabledRules) > 0 {

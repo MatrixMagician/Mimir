@@ -246,3 +246,49 @@ func TestStagedNonRepoFailsLoud(t *testing.T) {
 	_, _, _, err := gitscan.ScanStaged(context.Background(), eng, dir, false)
 	require.Error(t, err, "scanning a non-git directory must fail loud, not exit clean")
 }
+
+// TestStatsCountFilesNotFindings is a regression test for the summary line.
+// Stats.FilesScanned was set to len(deduped) — the FINDING count — so the
+// "scanned N files" summary lied in both git modes: a clean staged commit of
+// four files reported "scanned 0 files", and a history scan reported its finding
+// count instead of the number of files the patch touched. FilesScanned must mean
+// the same thing in every mode.
+func TestStatsCountFilesNotFindings(t *testing.T) {
+	dir := initRepo(t)
+	// Three files, only one of which carries a secret.
+	writeFile(t, dir, "clean1.txt", "nothing to see here\n")
+	writeFile(t, dir, "clean2.txt", "also benign\n")
+	writeFile(t, dir, "leak.txt", "aws_access_key_id = "+fixtureSecret+"\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "three files, one secret")
+
+	findings, _, stats, err := gitscan.ScanHistory(context.Background(), newTestEngine(t), dir, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, findings, "the seeded secret must be found")
+
+	assert.Equal(t, 3, stats.FilesScanned,
+		"FilesScanned must count the files the patch touched, not the findings")
+	assert.NotEqual(t, len(findings), stats.FilesScanned,
+		"FilesScanned must not be an alias for the finding count")
+}
+
+// TestStagedStatsCountCleanFiles pins the most visible symptom: a staged commit
+// with NO secrets reported "scanned 0 files", which reads as though the hook
+// checked nothing at all.
+func TestStagedStatsCountCleanFiles(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, ".keep", "init\n")
+	git(t, dir, "add", ".keep")
+	git(t, dir, "commit", "-q", "-m", "init")
+
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
+		writeFile(t, dir, name, "benign line\n")
+	}
+	git(t, dir, "add", ".")
+
+	findings, _, stats, err := gitscan.ScanStaged(context.Background(), newTestEngine(t), dir, false)
+	require.NoError(t, err)
+	assert.Empty(t, findings, "no secrets were staged")
+	assert.Equal(t, 4, stats.FilesScanned,
+		"a clean staged scan must still report the files it examined")
+}

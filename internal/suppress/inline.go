@@ -3,6 +3,8 @@ package suppress
 import (
 	"regexp"
 	"strings"
+
+	"github.com/MatrixMagician/mimir/internal/finding"
 )
 
 // InlineReason is the SuppressionReason value set on findings withheld by an
@@ -20,6 +22,35 @@ const InlineReason = "inline-ignore"
 // such as "ignored" from triggering a blanket match. Captured rule IDs preserve
 // their original case for the exact, case-sensitive comparison in D-03.
 var inlineDirectiveRE = regexp.MustCompile(`(?i)mimir:ignore\b(:([a-zA-Z0-9_,-]+))?`)
+
+// FilterInline applies the inline-ignore policy to the findings produced from a
+// single source line, incrementing counts[InlineReason] for every suppressed
+// finding regardless of the branch taken.
+//
+// When showSuppressed is false a suppressed finding is DROPPED; when true it is
+// KEPT and annotated (Suppressed=true, SuppressionReason=InlineReason) so it
+// reaches the output stage (D-12). Both scan sources — the working-tree file
+// walk and the diff parser — share this one function, since a diff-added line
+// IS the source line and the directive check is identical.
+//
+// The result reuses findings' backing array, so callers must not retain the
+// input slice afterwards. Both call sites pass a slice fresh from
+// detect.ScanLine, which nobody else holds.
+func FilterInline(line string, findings []finding.Finding, counts map[string]int, showSuppressed bool) []finding.Finding {
+	kept := findings[:0]
+	for i := range findings {
+		if InlineSuppresses(line, findings[i].RuleID) {
+			counts[InlineReason]++
+			if !showSuppressed {
+				continue // drop: do not keep
+			}
+			findings[i].Suppressed = true
+			findings[i].SuppressionReason = InlineReason
+		}
+		kept = append(kept, findings[i])
+	}
+	return kept
+}
 
 // InlineSuppresses reports whether an inline mimir-ignore directive on the given
 // source line suppresses the given rule (D-01..D-03). It operates on a single

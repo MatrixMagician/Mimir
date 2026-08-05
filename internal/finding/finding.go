@@ -7,32 +7,32 @@
 package finding
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
-	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // toSlash converts path separators to forward slashes unconditionally.
-// filepath.ToSlash is a no-op on non-Windows; this function normalizes
-// backslashes on all platforms for cross-platform fingerprint stability.
+// filepath.ToSlash is a no-op on non-Windows, so the ReplaceAll is what actually
+// normalizes backslashes on every platform — which is what fingerprint stability
+// across platforms requires.
 func toSlash(path string) string {
-	return filepath.ToSlash(strings.ReplaceAll(path, `\`, "/"))
+	return strings.ReplaceAll(path, `\`, "/")
 }
 
 // Finding represents a single detected secret. All secret values are redacted —
 // the raw value never appears in any exported field.
 type Finding struct {
-	RuleID      string  `json:"rule_id"`
-	Description string  `json:"description,omitempty"`
-	File        string  `json:"file"`        // repo-relative, forward-slash
-	Line        int     `json:"line"`        // 1-indexed
-	Column      int     `json:"column"`      // 1-indexed
-	Match       string  `json:"match"`       // surrounding context, redacted
-	Secret      string  `json:"secret"`      // token, redacted; NEVER raw value
-	Fingerprint string  `json:"fingerprint"` // path:rule_id:sha256[:16]
-	Entropy     float32 `json:"entropy,omitempty"`
-	IsHeuristic bool    `json:"is_heuristic,omitempty"`
+	RuleID      string `json:"rule_id"`
+	File        string `json:"file"`        // repo-relative, forward-slash
+	Line        int    `json:"line"`        // 1-indexed
+	Column      int    `json:"column"`      // 1-indexed
+	Match       string `json:"match"`       // surrounding context, redacted
+	Secret      string `json:"secret"`      // token, redacted; NEVER raw value
+	Fingerprint string `json:"fingerprint"` // path:rule_id:sha256[:16]
+	IsHeuristic bool   `json:"is_heuristic,omitempty"`
 
 	// Suppressed and SuppressionReason (D-12) are populated by the suppression
 	// layers when a finding is withheld but still surfaced via --show-suppressed.
@@ -83,6 +83,38 @@ type Verification struct {
 	Provider string `json:"provider"`
 }
 
+// Sort orders findings deterministically, in place. Every scan source (working
+// tree, git history, staged diff) sorts through this one function so output and
+// baselines stay diff-stable across modes.
+//
+// The order is File → Line → Column → RuleID → Fingerprint. The first three are
+// the reported location; the last two are tiebreakers, and they are load-bearing
+// rather than decorative. Two rules can match the SAME secret at the SAME
+// file:line:column (e.g. a `token: gho_...` line matches both github-oauth and
+// the generic-api-key heuristic). On a File/Line/Column-only comparator those
+// two compare equal, and since the concurrent walk appends findings in
+// goroutine-completion order, an unstable sort was free to emit them in either
+// order — so consecutive scans of an unchanged tree produced different output
+// and therefore different baselines. Extending the comparator to a total order
+// makes the result independent of both goroutine timing and sort stability.
+func Sort(findings []Finding) {
+	slices.SortFunc(findings, func(a, b Finding) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Line, b.Line); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Column, b.Column); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.RuleID, b.RuleID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Fingerprint, b.Fingerprint)
+	})
+}
+
 // minVisibleLen is the D-05 guardrail threshold: secrets shorter than this
 // are fully masked (to avoid revealing too high a percentage of the value).
 const minVisibleLen = 16
@@ -124,6 +156,12 @@ func computeFingerprint(repoRelPath, ruleID, rawSecret string) string {
 // redacted representation. It is not stored in any field of the returned
 // Finding. After this function returns, rawSecret goes out of scope.
 //
+// New locates the secret inside matchContext by string search. Prefer NewAt when
+// the caller already knows the secret's offset (the detection engine does): a
+// search-based replacement rewrites EVERY occurrence of the byte sequence, which
+// mangles unrelated context and, on adversarial input, can splice neighbouring
+// redactions into something that reproduces the raw value. See NewAt.
+//
 // Parameters:
 //   - ruleID: the rule that matched (e.g. "aws-access-token")
 //   - file: repo-relative file path (forward-slash normalized)
@@ -133,12 +171,44 @@ func computeFingerprint(repoRelPath, ruleID, rawSecret string) string {
 //   - matchContext: surrounding line context (raw secret will be redacted here)
 //   - isHeuristic: true for generic-* entropy-based rules
 func New(ruleID, file string, line, col int, rawSecret, matchContext string, isHeuristic bool) Finding {
-	// Compute fingerprint from raw secret BEFORE redacting
-	fp := computeFingerprint(file, ruleID, rawSecret)
+	return newFinding(ruleID, file, line, col, rawSecret, isHeuristic,
+		strings.ReplaceAll(matchContext, rawSecret, RedactSecret(rawSecret)))
+}
 
-	// Redact the secret in the match context string
-	redactedMatch := strings.ReplaceAll(matchContext, rawSecret, RedactSecret(rawSecret))
+// NewAt is New for callers that know exactly where the secret sits inside the
+// match context. secretOffset is the byte offset of rawSecret within
+// matchContext; when it is out of range, NewAt falls back to New's search.
+//
+// This exists because replacing by SEARCH is wrong in two ways that a fuzzer
+// found on real rule output. (The example connection strings below are written
+// with the scheme separator broken up, so that documenting the bug does not
+// itself trip the connection-string rule when mimir scans its own source.)
+//
+//   - It rewrites every occurrence. For a URI like `db:/ /u:aaaa…aaaa@aaaa…`,
+//     where the password and the host share a byte run, redacting the password
+//     also mangles the host — so the operator cannot tell which host leaked.
+//   - Worse, the concatenated redactions can reproduce the secret. For an input
+//     whose password was seventeen zeroes, the redacted context came out as
+//     `…:0000****…****0000@0000****…****00000000000000000` — which contains the
+//     original seventeen zeroes verbatim, defeating the redaction the Finding
+//     exists to guarantee.
+//
+// Replacing the single known span fixes both: exactly one occurrence changes,
+// and the surrounding bytes are left alone.
+func NewAt(ruleID, file string, line, col int, rawSecret, matchContext string, secretOffset int, isHeuristic bool) Finding {
+	end := secretOffset + len(rawSecret)
+	if secretOffset < 0 || end > len(matchContext) || matchContext[secretOffset:end] != rawSecret {
+		// Offset does not describe the secret — fall back rather than corrupt.
+		return New(ruleID, file, line, col, rawSecret, matchContext, isHeuristic)
+	}
+	return newFinding(ruleID, file, line, col, rawSecret, isHeuristic,
+		matchContext[:secretOffset]+RedactSecret(rawSecret)+matchContext[end:])
+}
 
+// newFinding is the shared constructor. redactedMatch is already redacted by the
+// caller; rawSecret is used ONLY for the fingerprint and the redacted Secret, and
+// is stored in no field.
+func newFinding(ruleID, file string, line, col int, rawSecret string, isHeuristic bool, redactedMatch string) Finding {
 	return Finding{
 		RuleID:      ruleID,
 		File:        file,
@@ -146,7 +216,7 @@ func New(ruleID, file string, line, col int, rawSecret, matchContext string, isH
 		Column:      col,
 		Match:       redactedMatch,
 		Secret:      RedactSecret(rawSecret),
-		Fingerprint: fp,
+		Fingerprint: computeFingerprint(file, ruleID, rawSecret),
 		IsHeuristic: isHeuristic,
 	}
 	// rawSecret goes out of scope here — not stored in any field

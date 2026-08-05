@@ -86,18 +86,13 @@ func (awsVerifier) Verify(ctx context.Context, scanRoot, raw string, f finding.F
 	client := sts.New(sts.Options{
 		Region:       awsRegion,
 		BaseEndpoint: aws.String(stsGlobalEndpoint),
-		Credentials:  aws.NewCredentialsCache(staticProviderFor(raw, secretKey)),
+		// Static credentials seeded ONLY with the detected pair — no ambient
+		// resolution is possible.
+		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(raw, secretKey, "")),
 	})
 
 	_, err := client.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	return classifyAWSError(err)
-}
-
-// staticProviderFor returns a static-credentials provider seeded ONLY with the
-// passed access key and secret key. It is the verifier's sole credential source;
-// no ambient resolution is possible.
-func staticProviderFor(accessKeyID, secretKey string) credentials.StaticCredentialsProvider {
-	return credentials.NewStaticCredentialsProvider(accessKeyID, secretKey, "")
 }
 
 // classifyAWSError maps a GetCallerIdentity result to a three-state Status. It

@@ -12,25 +12,23 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-// Rule defines a single secret-detection rule with its compiled regex.
+// Rule defines a single secret-detection rule with its compiled regex. Only the
+// fields the engine reads survive compilation — the raw regex/description
+// strings live on rawRule, which is where config-error messages quote them.
 type Rule struct {
-	ID             string      `toml:"id"`
-	Description    string      `toml:"description"`
-	Regex          string      `toml:"regex"`
-	CompiledRegex  *regexp.Regexp
-	Entropy        float64     `toml:"entropy"`
-	Keywords       []string    `toml:"keywords"`
-	SecretGroup    int         `toml:"secret_group"`
-	IsHeuristic    bool        `toml:"is_heuristic"`
-	Allowlists     []Allowlist `toml:"allowlists"`
+	ID            string
+	CompiledRegex *regexp.Regexp
+	Entropy       float64
+	Keywords      []string
+	SecretGroup   int
+	IsHeuristic   bool
+	Allowlists    []Allowlist
 }
 
-// Allowlist holds regex patterns and/or path patterns used to suppress findings.
+// Allowlist holds the compiled regex and path patterns used to suppress
+// findings, by value and by path respectively.
 type Allowlist struct {
-	Description     string         `toml:"description"`
-	Regexes         []string       `toml:"regexes"`
 	CompiledRegexes []*regexp.Regexp
-	Paths           []string       `toml:"paths"`
 	CompiledPaths   []*regexp.Regexp
 }
 
@@ -51,17 +49,16 @@ type Config struct {
 // rawConfig mirrors the TOML schema for decoding. After decoding, rules
 // and allowlists are validated and moved into Config.
 type rawConfig struct {
-	Title      string        `toml:"title"`
-	Extend     extendSection `toml:"extend"`
+	Title      string         `toml:"title"`
+	Extend     extendSection  `toml:"extend"`
 	Allowlists []rawAllowlist `toml:"allowlists"`
-	Rules      []rawRule     `toml:"rules"`
+	Rules      []rawRule      `toml:"rules"`
 }
 
 // extendSection represents the [extend] block in a user config.
 type extendSection struct {
 	UseDefault    bool     `toml:"use_default"`
 	DisabledRules []string `toml:"disabled_rules"`
-	Path          string   `toml:"path"` // reserved for Phase 2; not implemented in Phase 1
 	// UseDefaultAllowlists is the master toggle for the shipped default
 	// path-prune globs (SUP-04, D-07). A pointer so absence (nil) means
 	// default-ON; only an explicit `use_default_allowlists = false` disables them.
@@ -90,7 +87,13 @@ type rawAllowlist struct {
 // LoadDefault loads and validates the embedded default configuration.
 // It returns an error if any rule regex fails RE2 compilation.
 func LoadDefault() (*Config, error) {
-	raw, err := parseBytes(extconfig.DefaultConfig)
+	return loadFromBytes(extconfig.DefaultConfig)
+}
+
+// loadFromBytes decodes TOML config bytes and compiles all regexes into a
+// validated Config.
+func loadFromBytes(data []byte) (*Config, error) {
+	raw, err := parseBytes(data)
 	if err != nil {
 		return nil, err
 	}
@@ -98,9 +101,9 @@ func LoadDefault() (*Config, error) {
 }
 
 // LoadConfig implements three-level config precedence (CFG-02):
-//   1. --config flag (explicit path) — missing → error
-//   2. .mimir.toml in scanRoot directory — missing → fall through
-//   3. Embedded defaults
+//  1. --config flag (explicit path) — missing → error
+//  2. .mimir.toml in scanRoot directory — missing → fall through
+//  3. Embedded defaults
 //
 // When use_default=true is set in the user config, the embedded defaults are
 // merged with the user config rules (extend model, CFG-01/D-09).
@@ -160,9 +163,17 @@ func parseBytes(data []byte) (*rawConfig, error) {
 }
 
 // mergeConfigs merges an overlay config on top of a base config.
-// The overlay's rules are appended after the base rules.
-// disabled_rules from the overlay are removed from the merged result.
-// The overlay's global allowlists are merged with the base.
+//
+// Rules are keyed by ID with LAST-WINS semantics: an overlay rule whose ID
+// matches a base rule REPLACES it in place (keeping the base's position), and an
+// overlay rule with a new ID is appended. Without this, redefining a shipped rule
+// — the natural way to tighten one under `use_default = true` — left both rules
+// active, so every match was reported twice and written twice into a baseline.
+// Copying the shipped config/mimir.toml as a project .mimir.toml (it carries
+// `use_default = true`) duplicated the entire default ruleset against itself.
+//
+// disabled_rules from the overlay are then removed from the merged result, and
+// the overlay's global allowlists are appended to the base's.
 func mergeConfigs(base, overlay *rawConfig) *rawConfig {
 	merged := &rawConfig{
 		Title: base.Title,
@@ -171,10 +182,21 @@ func mergeConfigs(base, overlay *rawConfig) *rawConfig {
 		Extend: overlay.Extend,
 	}
 
-	// Start with base rules, append overlay rules
 	merged.Rules = make([]rawRule, 0, len(base.Rules)+len(overlay.Rules))
 	merged.Rules = append(merged.Rules, base.Rules...)
-	merged.Rules = append(merged.Rules, overlay.Rules...)
+
+	posByID := make(map[string]int, len(merged.Rules))
+	for i, r := range merged.Rules {
+		posByID[r.ID] = i
+	}
+	for _, r := range overlay.Rules {
+		if pos, exists := posByID[r.ID]; exists {
+			merged.Rules[pos] = r // override in place
+			continue
+		}
+		posByID[r.ID] = len(merged.Rules)
+		merged.Rules = append(merged.Rules, r)
+	}
 
 	// Apply disabled_rules filter
 	if len(overlay.Extend.DisabledRules) > 0 {
@@ -211,11 +233,7 @@ func compile(raw *rawConfig) (*Config, error) {
 	// Compile and validate global allowlist regexes
 	compiledAllowlists := make([]Allowlist, 0, len(raw.Allowlists))
 	for _, al := range raw.Allowlists {
-		compiled := Allowlist{
-			Description: al.Description,
-			Regexes:     al.Regexes,
-			Paths:       al.Paths,
-		}
+		var compiled Allowlist
 		for _, pattern := range al.Regexes {
 			re, err := regexp.Compile(pattern)
 			if err != nil {
@@ -244,8 +262,6 @@ func compile(raw *rawConfig) (*Config, error) {
 
 		rule := Rule{
 			ID:            rr.ID,
-			Description:   rr.Description,
-			Regex:         rr.Regex,
 			CompiledRegex: re,
 			Entropy:       rr.Entropy,
 			Keywords:      rr.Keywords,
@@ -255,11 +271,7 @@ func compile(raw *rawConfig) (*Config, error) {
 
 		// Compile per-rule allowlist regexes
 		for _, al := range rr.Allowlists {
-			compiledAl := Allowlist{
-				Description: al.Description,
-				Regexes:     al.Regexes,
-				Paths:       al.Paths,
-			}
+			var compiledAl Allowlist
 			for _, pattern := range al.Regexes {
 				alRe, alErr := regexp.Compile(pattern)
 				if alErr != nil {
@@ -275,14 +287,4 @@ func compile(raw *rawConfig) (*Config, error) {
 	cfg.Rules = compiledRules
 
 	return cfg, nil
-}
-
-// loadFromBytes decodes TOML config bytes, compiles all regexes, and
-// returns a validated Config. Used by LoadDefault and tests.
-func loadFromBytes(data []byte) (*Config, error) {
-	raw, err := parseBytes(data)
-	if err != nil {
-		return nil, err
-	}
-	return compile(raw)
 }

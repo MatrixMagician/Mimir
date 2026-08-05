@@ -270,3 +270,67 @@ func indexStr(s, sub string) int {
 	}
 	return -1
 }
+
+// TestExtendOverridesRuleByID is the duplicate-findings regression test. Under
+// `use_default = true`, redefining a shipped rule ID is the natural way to
+// tighten it — but the merge used to APPEND the overlay rule, leaving both the
+// default and the override active. Every match was then reported twice (and
+// written twice into a --baseline-out snapshot). The overlay must replace the
+// base rule with the same ID, keeping exactly one rule per ID.
+func TestExtendOverridesRuleByID(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "override.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`
+[extend]
+use_default = true
+
+[[rules]]
+id = "aws-access-token"
+description = "my stricter AWS rule"
+regex = '''\b(AKIA[A-Z2-7]{16})\b'''
+keywords = ["AKIA"]
+`), 0o600))
+
+	cfg, err := LoadConfig(cfgPath, "")
+	require.NoError(t, err)
+
+	var matching []Rule
+	for _, r := range cfg.Rules {
+		if r.ID == "aws-access-token" {
+			matching = append(matching, r)
+		}
+	}
+	require.Len(t, matching, 1,
+		"a redefined rule ID must REPLACE the default, not coexist with it (duplicate findings)")
+	assert.Equal(t, `\b(AKIA[A-Z2-7]{16})\b`, matching[0].CompiledRegex.String(),
+		"the surviving rule must be the user's override, not the shipped default")
+
+	// Every ID in the merged set must be unique.
+	seen := map[string]bool{}
+	for _, r := range cfg.Rules {
+		assert.False(t, seen[r.ID], "duplicate rule ID %q in merged config", r.ID)
+		seen[r.ID] = true
+	}
+}
+
+// TestShippedConfigIsIdempotentAsUserConfig guards the worst instance of the
+// same bug: config/mimir.toml carries `use_default = true`, so a user who copies
+// it to .mimir.toml as a starting point merged the entire default ruleset
+// against itself and saw every finding twice.
+func TestShippedConfigIsIdempotentAsUserConfig(t *testing.T) {
+	shipped := filepath.Join("..", "..", "config", "mimir.toml")
+	data, err := os.ReadFile(shipped)
+	require.NoError(t, err, "the shipped default config must be readable")
+
+	dir := t.TempDir()
+	copyPath := filepath.Join(dir, ".mimir.toml")
+	require.NoError(t, os.WriteFile(copyPath, data, 0o600))
+
+	viaCopy, err := LoadConfig(copyPath, "")
+	require.NoError(t, err)
+	embedded, err := LoadDefault()
+	require.NoError(t, err)
+
+	assert.Equal(t, len(embedded.Rules), len(viaCopy.Rules),
+		"copying the shipped config must not duplicate the ruleset")
+}

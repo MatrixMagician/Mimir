@@ -42,17 +42,6 @@ type PathMatcher struct {
 	patterns []pattern
 }
 
-// validGlob reports whether g is a well-formed doublestar pattern. It probes via
-// doublestar.Match against a sample path: a malformed pattern returns
-// ErrBadPattern. This is more robust than relying on a specific validator helper
-// being present/behaving across doublestar versions.
-func validGlob(g string) bool {
-	if _, err := doublestar.Match(g, "a/b/c"); err != nil {
-		return false
-	}
-	return true
-}
-
 // NewPathMatcher builds a matcher from the default globs (when useDefaults is
 // true) followed by the caller's ignore lines (in file order, so a user
 // `!negation` can re-include a default-pruned path — D-07, Pitfall 2). Blank
@@ -64,7 +53,7 @@ func NewPathMatcher(ignoreLines []string, useDefaults bool) (*PathMatcher, error
 	var pats []pattern
 	if useDefaults {
 		for _, g := range DefaultPathExcludes {
-			if validGlob(g) {
+			if doublestar.ValidatePattern(g) {
 				pats = append(pats, pattern{glob: g})
 			}
 		}
@@ -82,7 +71,7 @@ func NewPathMatcher(ignoreLines []string, useDefaults bool) (*PathMatcher, error
 		if g == "" {
 			continue
 		}
-		if !validGlob(g) {
+		if !doublestar.ValidatePattern(g) {
 			return nil, fmt.Errorf("invalid .mimirignore glob pattern %q", g)
 		}
 		pats = append(pats, pattern{glob: g, negate: neg})
@@ -131,7 +120,7 @@ func (m *PathMatcher) Excluded(relPath string, isDir bool) bool {
 	if m == nil {
 		return false
 	}
-	rel := strings.TrimPrefix(filepath.ToSlash(strings.ReplaceAll(relPath, `\`, "/")), "./")
+	rel := strings.TrimPrefix(strings.ReplaceAll(relPath, `\`, "/"), "./")
 	if rel == "" || rel == "." {
 		return false
 	}

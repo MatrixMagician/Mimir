@@ -1,6 +1,13 @@
 package suppress
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func mustMatcher(t *testing.T, lines []string, useDefaults bool) *PathMatcher {
 	t.Helper()
@@ -82,4 +89,49 @@ func TestPathMatchNilSafe(t *testing.T) {
 	if m.Excluded("anything", false) {
 		t.Error("nil matcher must never exclude")
 	}
+}
+
+// TestLoadMimirIgnore covers the .mimirignore reader: a missing file is not an
+// error (the common case — most repos have none), and comments/blanks are
+// stripped while negations keep their leading `!` for NewPathMatcher to parse.
+func TestLoadMimirIgnore(t *testing.T) {
+	t.Run("missing file is not an error", func(t *testing.T) {
+		lines, err := LoadMimirIgnore(t.TempDir())
+		require.NoError(t, err, "a repo without .mimirignore is the common case, not a failure")
+		assert.Empty(t, lines)
+	})
+
+	t.Run("strips comments and blanks, keeps negations verbatim", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimirignore"), []byte(
+			"# a comment\n"+
+				"\n"+
+				"vendor/**\n"+
+				"   \n"+
+				"  docs/**  \n"+
+				"!docs/keep/**\n"+
+				"# trailing comment\n"), 0o600))
+
+		lines, err := LoadMimirIgnore(dir)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"vendor/**", "docs/**", "!docs/keep/**"}, lines,
+			"comments and blank lines are dropped; entries are trimmed; `!` is preserved")
+	})
+
+	t.Run("empty file yields no patterns", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".mimirignore"), []byte(""), 0o600))
+		lines, err := LoadMimirIgnore(dir)
+		require.NoError(t, err)
+		assert.Empty(t, lines)
+	})
+
+	t.Run("a directory named .mimirignore is reported, not silently ignored", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dir, ".mimirignore"), 0o750))
+		_, err := LoadMimirIgnore(dir)
+		// Reading a directory fails on Linux; the point is that it must not be
+		// mistaken for "no ignore file" and silently skipped.
+		assert.Error(t, err, "an unreadable .mimirignore must surface, not be treated as absent")
+	})
 }

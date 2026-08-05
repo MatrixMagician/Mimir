@@ -3,6 +3,7 @@ package finding_test
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -215,4 +216,109 @@ func TestNoRawSecretInAnyField(t *testing.T) {
 				"field %s must not contain the raw secret value", field.Name)
 		}
 	}
+}
+
+// TestSortIsTotalOrder is the determinism regression test. Two rules can match
+// the same secret at the same file:line:column (e.g. a `token: gho_...` line
+// matches both github-oauth and the generic-api-key heuristic). Before Sort
+// carried RuleID/Fingerprint tiebreakers, such findings compared EQUAL, and the
+// unstable sort emitted them in whichever order the concurrent walk happened to
+// append them — so two scans of an unchanged tree produced different JSON and
+// therefore different baselines. Sorting several distinct permutations of the
+// same set must now converge on one identical order.
+func TestSortIsTotalOrder(t *testing.T) {
+	tied := []finding.Finding{
+		{RuleID: "github-oauth", File: "a.go", Line: 3, Column: 8, Fingerprint: "a.go:github-oauth:1111"},
+		{RuleID: "generic-api-key", File: "a.go", Line: 3, Column: 8, Fingerprint: "a.go:generic-api-key:1111"},
+		{RuleID: "aws-access-token", File: "a.go", Line: 3, Column: 8, Fingerprint: "a.go:aws-access-token:2222"},
+		{RuleID: "generic-api-key", File: "a.go", Line: 1, Column: 1, Fingerprint: "a.go:generic-api-key:3333"},
+		{RuleID: "generic-api-key", File: "b.go", Line: 3, Column: 8, Fingerprint: "b.go:generic-api-key:4444"},
+	}
+
+	fingerprintsOf := func(fs []finding.Finding) []string {
+		out := make([]string, len(fs))
+		for i, f := range fs {
+			out[i] = f.Fingerprint
+		}
+		return out
+	}
+
+	base := slices.Clone(tied)
+	finding.Sort(base)
+	want := fingerprintsOf(base)
+
+	// Every permutation of the same set must sort to the same sequence.
+	perm := slices.Clone(tied)
+	for i := range perm {
+		shuffled := slices.Clone(tied)
+		// Rotate by i to get a different input order each round.
+		shuffled = append(shuffled[i:], shuffled[:i]...)
+		finding.Sort(shuffled)
+		assert.Equal(t, want, fingerprintsOf(shuffled),
+			"Sort must be a total order: rotation %d produced a different sequence", i)
+	}
+
+	// And the order itself must be the documented File → Line → Column → RuleID.
+	assert.Equal(t, []string{
+		"a.go:generic-api-key:3333",
+		"a.go:aws-access-token:2222",
+		"a.go:generic-api-key:1111",
+		"a.go:github-oauth:1111",
+		"b.go:generic-api-key:4444",
+	}, want)
+}
+
+// TestNewAt covers the positional redaction constructor, including the fallback
+// that protects against a caller passing an offset that does not describe the
+// secret. NewAt exists because search-based replacement rewrote every occurrence
+// of the secret's bytes, which mangled unrelated context and could splice
+// adjacent redactions back into the raw value.
+func TestNewAt(t *testing.T) {
+	const secret = "S3cretPassw0rdLong12"
+	redacted := finding.RedactSecret(secret)
+
+	t.Run("redacts only the span at the given offset", func(t *testing.T) {
+		ctx := "db://user:" + secret + "@host"
+		f := finding.NewAt("connection-string", "a.go", 1, 11, secret, ctx, len("db://user:"), false)
+		assert.Equal(t, "db://user:"+redacted+"@host", f.Match)
+		assert.Equal(t, redacted, f.Secret)
+		assert.NotContains(t, f.Match, secret, "the raw secret must not survive")
+	})
+
+	t.Run("leaves an identical byte run elsewhere untouched", func(t *testing.T) {
+		// The host repeats the password verbatim. Search-based replacement
+		// rewrote BOTH, so the operator could not tell which host leaked.
+		ctx := "db://u:" + secret + "@" + secret
+		f := finding.NewAt("connection-string", "a.go", 1, 8, secret, ctx, len("db://u:"), false)
+		assert.Equal(t, "db://u:"+redacted+"@"+secret, f.Match,
+			"only the matched span is redacted; the repeat in the host stays intact")
+		assert.Equal(t, 1, strings.Count(f.Match, redacted), "exactly one substitution")
+	})
+
+	t.Run("falls back to search when the offset is wrong", func(t *testing.T) {
+		ctx := "prefix " + secret + " suffix"
+		for name, offset := range map[string]int{
+			"negative":    -1,
+			"past end":    len(ctx) + 10,
+			"mismatched":  0,
+			"overlapping": len(ctx) - 2,
+		} {
+			t.Run(name, func(t *testing.T) {
+				f := finding.NewAt("r", "a.go", 1, 1, secret, ctx, offset, false)
+				assert.NotContains(t, f.Match, secret,
+					"a bad offset must still redact, never emit the raw secret")
+				assert.Equal(t, redacted, f.Secret)
+			})
+		}
+	})
+
+	t.Run("agrees with New on fingerprint and redaction", func(t *testing.T) {
+		ctx := "k = " + secret
+		viaNew := finding.New("r", "a.go", 2, 5, secret, ctx, true)
+		viaAt := finding.NewAt("r", "a.go", 2, 5, secret, ctx, len("k = "), true)
+		assert.Equal(t, viaNew.Fingerprint, viaAt.Fingerprint, "fingerprint is content-based")
+		assert.Equal(t, viaNew.Secret, viaAt.Secret)
+		assert.Equal(t, viaNew.Match, viaAt.Match, "single occurrence: both paths agree")
+		assert.Equal(t, viaNew.IsHeuristic, viaAt.IsHeuristic)
+	})
 }

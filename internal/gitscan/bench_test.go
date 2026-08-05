@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -53,15 +52,6 @@ const (
 	largeHistoryN      = 500           // large history size (10x) — heap delta must grow sub-linearly vs small
 )
 
-// benchGit runs a git command in dir, failing the benchmark on error.
-func benchGit(tb testing.TB, dir string, args ...string) {
-	tb.Helper()
-	full := append([]string{"-C", dir}, args...)
-	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
-		tb.Fatalf("git %v failed: %s", args, string(out))
-	}
-}
-
 // buildLargeHistory git-inits a temp repo and creates nCommits commits, each
 // rewriting a single file. A couple of commits embed a real (non-EXAMPLE) secret
 // so the detection + finding path actually runs under the benchmark; the rest are
@@ -69,11 +59,7 @@ func benchGit(tb testing.TB, dir string, args ...string) {
 // all-secrets repo.
 func buildLargeHistory(tb testing.TB, nCommits int) string {
 	tb.Helper()
-	dir := tb.TempDir()
-	benchGit(tb, dir, "init", "-q", "-b", "main")
-	benchGit(tb, dir, "config", "user.email", "bench@mimir.example")
-	benchGit(tb, dir, "config", "user.name", "Mimir Bench")
-	benchGit(tb, dir, "config", "commit.gpgsign", "false")
+	dir := initRepo(tb)
 
 	file := filepath.Join(dir, "data.txt")
 	for i := 0; i < nCommits; i++ {
@@ -88,8 +74,8 @@ func buildLargeHistory(tb testing.TB, nCommits int) string {
 		if err := os.WriteFile(file, []byte(content), 0600); err != nil {
 			tb.Fatalf("write rev %d: %v", i, err)
 		}
-		benchGit(tb, dir, "add", "data.txt")
-		benchGit(tb, dir, "commit", "-q", "-m", fmt.Sprintf("rev %d", i))
+		git(tb, dir, "add", "data.txt")
+		git(tb, dir, "commit", "-q", "-m", fmt.Sprintf("rev %d", i))
 	}
 	return dir
 }

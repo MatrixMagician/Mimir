@@ -1,0 +1,26 @@
+# Mimir's own .mimirignore.
+#
+# This repo is a secret scanner, so it is full of deliberately fake credentials:
+# test fixtures and rule regexes that necessarily contain example tokens. They
+# are not leaks, and they would otherwise make `mimir scan .` fail on its own
+# source tree — which is what the CI self-scan job runs.
+#
+# It also serves as a worked example of the format: one glob per line, `#` for
+# comments, and a leading `!` to re-include a path.
+
+# Fixture repos carrying intentionally-planted secrets.
+testdata/**
+
+# Fuzz corpora: seeds and saved crashers are, by construction, strings that
+# look like credentials. They live under a testdata/ dir inside each package,
+# so they need their own glob rather than the root testdata/** above.
+**/testdata/fuzz/**
+
+# Test files embed fake tokens as inputs and expectations.
+**/*_test.go
+
+# The default ruleset quotes token prefixes inside its own regexes.
+config/mimir.toml
+
+# Tool config that names secret-ish patterns.
+.semgrepignore

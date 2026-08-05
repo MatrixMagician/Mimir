@@ -24,6 +24,17 @@ type ScanSummary struct {
 	DurationMs    int64          `json:"duration_ms"`
 	PathsExcluded int            `json:"paths_excluded,omitempty"` // D-13
 	Suppressed    map[string]int `json:"suppressed,omitempty"`     // D-11: reason -> count
+
+	// FilesUnreadable is the count of files that could not be read. Consumers
+	// treating finding_count==0 as "clean" must check this too: it is omitempty,
+	// so its presence in the JSON at all means the scan was incomplete.
+	FilesUnreadable int `json:"files_unreadable,omitempty"`
+
+	// FilesOversized and FilesBinary report files skipped by policy. Unlike
+	// files_unreadable they are not failures, but a consumer computing coverage
+	// needs them to know the scan did not read everything on disk.
+	FilesOversized int `json:"files_oversized,omitempty"`
+	FilesBinary    int `json:"files_binary,omitempty"`
 }
 
 // WriteJSON encodes findings and stats as a JSON ScanResult to w.
@@ -35,28 +46,29 @@ func WriteJSON(w io.Writer, findings []finding.Finding, stats scanner.Stats) err
 		findings = []finding.Finding{}
 	}
 
+	// Suppressed is nil-normalized so the omitempty field is dropped entirely
+	// (preserving the OUT-02 byte-identical schema when nothing was suppressed)
+	// rather than serializing as "suppressed":{}.
+	suppressed := stats.Suppressed
+	if len(suppressed) == 0 {
+		suppressed = nil
+	}
+
 	result := ScanResult{
 		Findings: findings,
 		Summary: ScanSummary{
-			FilesScanned:  stats.FilesScanned,
-			FindingCount:  len(findings),
-			DurationMs:    stats.Duration.Milliseconds(),
-			PathsExcluded: stats.PathsExcluded,
-			Suppressed:    emptyToNil(stats.Suppressed),
+			FilesScanned:    stats.FilesScanned,
+			FindingCount:    len(findings),
+			DurationMs:      stats.Duration.Milliseconds(),
+			PathsExcluded:   stats.PathsExcluded,
+			Suppressed:      suppressed,
+			FilesUnreadable: stats.FilesUnreadable,
+			FilesOversized:  stats.FilesOversized,
+			FilesBinary:     stats.FilesBinary,
 		},
 	}
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(result)
-}
-
-// emptyToNil returns nil for an empty map so the omitempty Suppressed field is
-// dropped entirely (preserving the OUT-02 byte-identical schema when nothing was
-// suppressed) rather than serializing as "suppressed":{}.
-func emptyToNil(m map[string]int) map[string]int {
-	if len(m) == 0 {
-		return nil
-	}
-	return m
 }

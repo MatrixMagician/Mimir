@@ -17,9 +17,8 @@ const BaselineReason = "baseline"
 // forward-compatibility with future merge tooling (A2); findings reuse the
 // redacted Finding JSON schema so the baseline never stores a raw secret.
 type baselineEnvelope struct {
-	Version     int               `json:"version"`
-	GeneratedAt string            `json:"generated_at,omitempty"`
-	Findings    []finding.Finding `json:"findings"`
+	Version  int               `json:"version"`
+	Findings []finding.Finding `json:"findings"`
 }
 
 // Baseline holds the suppression keys derived from a finding snapshot: the full

@@ -18,17 +18,10 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	// Persistent flag: --no-color
-	// Also checked via NO_COLOR env var (honored automatically by fatih/color).
+	// Persistent flag: --no-color. The NO_COLOR env var is honored in two other
+	// places already — fatih/color checks it at init, and runScan ORs it into the
+	// flag value — so there is nothing to do here beyond declaring the flag.
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable ANSI color output")
-
-	// Apply NO_COLOR environment variable at init time.
-	if os.Getenv("NO_COLOR") != "" {
-		if err := rootCmd.PersistentFlags().Set("no-color", "true"); err != nil {
-			// Non-fatal: env var honored by fatih/color separately
-			_ = err
-		}
-	}
 }
 
 // Execute runs the root command and handles top-level errors.

@@ -64,3 +64,113 @@ repos:
     hooks:
       - id: mimir
 ```
+
+## Exit codes
+
+Mimir's exit code is the contract CI depends on:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | No reportable findings, and every selected file was read (or `--exit-zero` was passed) |
+| `1`  | One or more reportable findings — the pre-commit hook blocks the commit |
+| `2`  | Error: bad flags, unreadable config, malformed baseline, not a git repo, missing `git` |
+
+Suppressed findings never flip the exit code, even under `--show-suppressed`.
+
+An **incomplete** scan also exits `1`. If a file was selected but could not be
+read (permissions, I/O error), mimir warns on stderr, reports the count in the
+summary and as `files_unreadable` in JSON, and fails — because "no findings"
+across a file nobody could open is not evidence of no secrets. Pass
+`--exit-zero` if you want CI to proceed anyway.
+
+Files skipped **by policy** — past `--max-file-size`, or detected as binary —
+are reported the same way (`files_oversized`, `files_binary`) but do *not* fail
+the scan, since skipping them is the configured behaviour rather than a failure.
+The counts are there so `finding_count: 0` is never mistaken for "every byte on
+disk was examined".
+
+## Suppressing false positives
+
+Three layers, applied in this order:
+
+**1. Inline directives** — put a comment on the offending line:
+
+```go
+apiKey := "not-really-a-secret"  // mimir:ignore
+token := "another"               // mimir:ignore:generic-api-key,github-pat
+```
+
+Bare `mimir:ignore` suppresses every rule on that line; the scoped form suppresses
+only the listed rule IDs.
+
+**2. `.mimirignore`** — gitignore-style path globs at the scan root. One glob per
+line, `#` for comments, and a leading `!` re-includes a path (last match wins):
+
+```
+**/*.generated.go
+**/*.env
+!**/*.env.example
+```
+
+As in `.gitignore`, a negation cannot resurrect a path inside an already-excluded
+**directory**: once `docs/**` prunes the directory, mimir never descends into it,
+so `!docs/security/**` would have nothing to re-include. Exclude at the file level
+(`docs/**/*.md`) if you need to carve an exception back out.
+
+Vendored and generated paths (`vendor/`, `node_modules/`, `*.min.js`, lockfiles)
+are excluded by default already; pass `--no-default-excludes` to scan them anyway.
+This repo's own [`.mimirignore`](.mimirignore) is a worked example.
+
+**3. Baselines** — accept the current findings, then alert only on new ones:
+
+```sh
+mimir scan --baseline-out .mimir-baseline.json .   # snapshot today's findings
+mimir scan --baseline .mimir-baseline.json .       # exit 1 only on NEW findings
+```
+
+A baselined finding survives a file move, because the entry is matched on secret
+content rather than on file path alone.
+
+Use `--show-suppressed` to see what each layer withheld, annotated with the
+reason and informational only.
+
+## Custom rules
+
+Drop a `.mimir.toml` at the scan root, or point at one with `--config`:
+
+```toml
+[extend]
+use_default = true              # start from the shipped ruleset
+disabled_rules = ["jwt"]        # ...minus these
+
+[[rules]]
+id = "acme-internal-token"
+description = "ACME internal service token"
+regex = '''\b(acme_[A-Za-z0-9]{32})\b'''
+entropy = 3.0
+keywords = ["acme_"]            # required: the Aho-Corasick pre-filter gate
+```
+
+Redeclaring a shipped rule's `id` **replaces** it, which is how you tighten or
+loosen a default rule. Set `use_default = false` to run only your own rules.
+
+Regexes are RE2 (no lookahead or backreferences) and are validated at load time —
+a bad pattern fails loud with the offending rule ID rather than being skipped
+silently. Use `entropy` and `[[rules.allowlists]]` instead of lookarounds.
+
+## Live verification
+
+`--verify` checks detected AWS and GitHub credentials against their providers and
+labels each one `[ACTIVE]`, `[INACTIVE]`, or `[UNKNOWN]`:
+
+```sh
+mimir scan --verify .
+```
+
+It is **off by default**, and the pre-commit hook never enables it. It only ever
+makes read-only calls (AWS STS `GetCallerIdentity`, GitHub `GET /user`), only on
+findings that survived suppression, and it never changes the exit code — a live
+credential and a dead one both still just count as a finding.
+
+A network failure, timeout, or rate-limit always yields `unknown`, never
+`inactive`, so an unreachable provider can never be read as "this key is safe".

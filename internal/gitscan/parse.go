@@ -14,7 +14,8 @@ import (
 
 // parsePatch streams the unified-diff patch on r through go-gitdiff and scans
 // every added (OpAdd) line with the detection engine. It returns the raw (not
-// yet deduped or sorted) findings plus a per-reason suppression count.
+// yet deduped or sorted) findings, a per-reason suppression count, the raw
+// side-channel map, and the number of FILES the patch touched.
 //
 // Streaming discipline (criterion 2 / Pitfall 2): gitdiff.Parse returns a
 // channel fed by an internal goroutine; ranging it lazily keeps peak memory
@@ -23,10 +24,10 @@ import (
 //
 // showSuppressed mirrors the scanner: when false an inline-ignored finding is
 // dropped (but still counted); when true it is kept and annotated.
-func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]finding.Finding, map[string]int, map[string]string, error) {
+func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]finding.Finding, map[string]int, map[string]string, int, error) {
 	files, err := gitdiff.Parse(r)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, 0, err
 	}
 
 	var out []finding.Finding
@@ -34,8 +35,19 @@ func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]find
 	// Fingerprint→raw side channel for opt-in live verification. Written only by
 	// engine.ScanLine, never stored on a Finding or serialized.
 	raw := map[string]string{}
+	// Distinct paths touched by the patch. A history scan revisits the same path
+	// across commits, so the count is of distinct files, matching the
+	// working-tree scanner's "files scanned" semantics.
+	seenFiles := map[string]struct{}{}
 
 	for f := range files {
+		name := f.NewName
+		if name == "" {
+			name = f.OldName // pure deletion: attribute to the removed path
+		}
+		if name != "" {
+			seenFiles[name] = struct{}{}
+		}
 		for _, tf := range f.TextFragments {
 			if tf == nil {
 				continue
@@ -52,22 +64,15 @@ func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]find
 					// Line.Line; strip it so column math and regex anchors match
 					// the working-tree scanner's behavior.
 					line := strings.TrimSuffix(l.Line, "\n")
-					lineFindings := engine.ScanLine(line, f.NewName, lineNum, raw)
-					// Inline-ignore suppression (SUP-01/D-12) — COPY of the
-					// scanner.go scanFile block: the diff-added line IS the
-					// source line, so the identical directive check applies.
-					for i := range lineFindings {
-						if suppress.InlineSuppresses(line, lineFindings[i].RuleID) {
-							suppressed[suppress.InlineReason]++
-							if !showSuppressed {
-								continue // drop: do not append
-							}
-							lineFindings[i].Suppressed = true
-							lineFindings[i].SuppressionReason = suppress.InlineReason
-						}
-						attachCommitMeta(&lineFindings[i], f.PatchHeader)
-						out = append(out, lineFindings[i])
+					// The diff-added line IS the source line, so the identical
+					// inline-ignore check applies — shared with scanner.scanFile
+					// via suppress.FilterInline (SUP-01/D-12).
+					kept := suppress.FilterInline(line,
+						engine.ScanLine(line, f.NewName, lineNum, raw), suppressed, showSuppressed)
+					for i := range kept {
+						attachCommitMeta(&kept[i], f.PatchHeader)
 					}
+					out = append(out, kept...)
 					lineNum++
 				case gitdiff.OpContext:
 					lineNum++
@@ -78,7 +83,7 @@ func parsePatch(r io.Reader, engine *detect.Engine, showSuppressed bool) ([]find
 		}
 	}
 
-	return out, suppressed, raw, nil
+	return out, suppressed, raw, len(seenFiles), nil
 }
 
 // attachCommitMeta copies D-08 commit provenance from a patch header onto a

@@ -297,15 +297,35 @@ func gitCmd(t *testing.T, dir string, args ...string) {
 	require.NoErrorf(t, err, "git %v failed: %s", args, string(out))
 }
 
-// newGitFixtureRepo builds a temp git repo where a secret is added in commit 1
-// and the file is deleted in commit 2 (the added-then-deleted history case).
-func newGitFixtureRepo(t *testing.T) string {
+// initGitRepo creates a temp git repo with deterministic identity/config so
+// commit metadata is stable and no global git config interferes. Shared by every
+// git fixture builder in this package (scan and hook tests alike).
+func initGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	gitCmd(t, dir, "init", "-q", "-b", "main")
 	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
 	gitCmd(t, dir, "config", "user.name", "Mimir Test")
 	gitCmd(t, dir, "config", "commit.gpgsign", "false")
+	return dir
+}
+
+// initGitRepoWithHEAD creates a repo with one initial commit, so it has a HEAD
+// for `git diff --staged` to diff against.
+func initGitRepoWithHEAD(t *testing.T) string {
+	t.Helper()
+	dir := initGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".keep"), []byte("init\n"), 0600))
+	gitCmd(t, dir, "add", ".keep")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+	return dir
+}
+
+// newGitFixtureRepo builds a temp git repo where a secret is added in commit 1
+// and the file is deleted in commit 2 (the added-then-deleted history case).
+func newGitFixtureRepo(t *testing.T) string {
+	t.Helper()
+	dir := initGitRepo(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "leak.txt"),
 		[]byte("aws_access_key_id = AKIAFAKEKEYABCDE2345\n"), 0600))
 	gitCmd(t, dir, "add", "leak.txt")
@@ -341,14 +361,7 @@ func TestGitModeNonRepoFailsLoud(t *testing.T) {
 // has a HEAD to diff against and the staged line is reported.
 func newStagedFixtureRepo(t *testing.T, name, content string) string {
 	t.Helper()
-	dir := t.TempDir()
-	gitCmd(t, dir, "init", "-q", "-b", "main")
-	gitCmd(t, dir, "config", "user.email", "test@mimir.example")
-	gitCmd(t, dir, "config", "user.name", "Mimir Test")
-	gitCmd(t, dir, "config", "commit.gpgsign", "false")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".keep"), []byte("init\n"), 0600))
-	gitCmd(t, dir, "add", ".keep")
-	gitCmd(t, dir, "commit", "-q", "-m", "init")
+	dir := initGitRepoWithHEAD(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0600))
 	gitCmd(t, dir, "add", name)
 	return dir
@@ -392,4 +405,46 @@ func TestGitStagedMutuallyExclusive(t *testing.T) {
 	_, stderr, code := runMimir(t, "scan", "--no-color", "--git", "--staged", dir)
 	assert.Equal(t, 2, code, "--git and --staged together must exit 2")
 	assert.Contains(t, stderr, "mutually exclusive", "the error must explain the misuse")
+}
+
+// TestIncompleteScanFailsLoud asserts the end-to-end exit-code contract for a
+// scan that could not read everything it selected. "No findings" must not exit 0
+// when a file was skipped: that is how a pre-commit hook waves through the one
+// file the key was in. --exit-zero (the documented CI soft mode) still forces 0.
+func TestIncompleteScanFailsLoud(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 does not prevent reads")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ok.txt"), []byte("benign\n"), 0600))
+	unreadable := filepath.Join(dir, "secret.go")
+	require.NoError(t, os.WriteFile(unreadable, []byte("k = \"AKIAFAKEKEYABCDE2345\"\n"), 0600))
+	require.NoError(t, os.Chmod(unreadable, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+
+	stdout, stderr, code := runMimir(t, "scan", "--no-color", dir)
+	assert.Equal(t, 1, code,
+		"a scan that skipped a file must not report success — it did not look")
+	assert.Contains(t, stderr, "could not scan",
+		"the skipped file must be named on stderr without needing --verbose")
+	assert.Contains(t, stdout, "NOT complete",
+		"the summary must say the scan was incomplete")
+
+	_, _, zeroCode := runMimir(t, "scan", "--no-color", "--exit-zero", dir)
+	assert.Equal(t, 0, zeroCode, "--exit-zero remains the documented soft-mode escape hatch")
+}
+
+// TestLongLineSecretIsFoundEndToEnd is the CLI-level counterpart to the scanner
+// unit test: a secret on a line past the old 64 KiB buffer ceiling must flip the
+// exit code, exactly as it already did under --git and --staged.
+func TestLongLineSecretIsFoundEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	pad := strings.Repeat("var x=1;", 9000)
+	content := pad + "aws_access_key_id = AKIAFAKEKEYABCDE2345" + pad + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.js"), []byte(content), 0600))
+
+	stdout, _, code := runMimir(t, "scan", "--no-color", dir)
+	assert.Equal(t, 1, code, "a secret on a very long line must still fail the scan")
+	assert.Contains(t, stdout, "big.js", "the file must be reported")
+	assert.NotContains(t, stdout, "AKIAFAKEKEYABCDE2345", "the raw secret must stay redacted")
 }

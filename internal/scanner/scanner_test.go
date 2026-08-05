@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/mimir/internal/config"
 	"github.com/MatrixMagician/mimir/internal/detect"
@@ -139,4 +141,159 @@ func TestIsBinary(t *testing.T) {
 	assert.True(t, isBinary([]byte{'A', 'K', 'I', 'A', 0x00, 'F', 'A', 'K', 'E'}))
 	assert.False(t, isBinary([]byte("aws_access_key_id = AKIAFAKEKEY12345678")))
 	assert.False(t, isBinary([]byte{}))
+}
+
+// TestLongLineIsNotSilentlySkipped is the regression test for the worst failure
+// class this tool has: reporting "clean" without having looked.
+//
+// scanFile capped bufio's buffer at 64 KiB, so ANY file containing a longer line
+// failed with "token too long" and was skipped — silently, unless --verbose. A
+// minified bundle or single-line JSON blob with a key in it therefore scanned as
+// clean and exited 0. The git-aware sources never had the limit, so the same
+// repo reported differently depending on the flag.
+func TestLongLineIsNotSilentlySkipped(t *testing.T) {
+	dir := t.TempDir()
+	// One line well past the old 64 KiB ceiling, with the secret in the middle.
+	pad := strings.Repeat("var x=1;", 9000) // ~72 KiB either side
+	content := pad + "aws_access_key_id = AKIAFAKEKEYABCDE2345" + pad + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.js"), []byte(content), 0o600))
+
+	s := newTestScanner(t)
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, stats.FilesUnreadable,
+		"a long line must not make the file unreadable")
+	assert.Equal(t, 1, stats.FilesScanned, "the file must be counted as scanned")
+	require.NotEmpty(t, findings,
+		"the secret on a >64KiB line must be found, not silently skipped")
+}
+
+// TestUnreadableFileIsCountedAndReported asserts that a file we cannot read is
+// surfaced rather than swallowed. Without the count, "no findings" is
+// indistinguishable from "I never looked at the file your key was in" — and the
+// scan exits 0, so a pre-commit hook waves the commit through.
+func TestUnreadableFileIsCountedAndReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 does not prevent reads")
+	}
+	dir := t.TempDir()
+	unreadable := filepath.Join(dir, "secret.go")
+	require.NoError(t, os.WriteFile(unreadable, []byte("k = \"AKIAFAKEKEYABCDE2345\"\n"), 0o600))
+	require.NoError(t, os.Chmod(unreadable, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+
+	s := newTestScanner(t)
+	findings, _, stats, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err, "an unreadable file must not abort the whole scan")
+
+	assert.Empty(t, findings, "the secret is in the file we could not read")
+	assert.Equal(t, 1, stats.FilesUnreadable,
+		"an unscanned file must be counted, or a clean-looking scan hides it")
+}
+
+// TestMaxLineBytes pins the buffer ceiling's derivation. It tracks the
+// file-size limit because a line cannot exceed its file, and it must never fall
+// below bufio's starting buffer or grow unbounded when the limit is disabled.
+func TestMaxLineBytes(t *testing.T) {
+	assert.Equal(t, 10*1024*1024, maxLineBytes(10), "follows the configured MB limit")
+	assert.Equal(t, 64*1024, maxLineBytes(0)/(4*1024), "0 (unlimited) uses the absolute cap")
+	assert.GreaterOrEqual(t, maxLineBytes(0), 64*1024, "unlimited still has a ceiling")
+	assert.Equal(t, 64*1024, maxLineBytes(-1)/(4*1024), "negative is treated as unlimited")
+	assert.GreaterOrEqual(t, maxLineBytes(1), 64*1024, "never below bufio's starting buffer")
+}
+
+// TestOverlappingPathsScanEachFileOnce is the regression test for duplicate
+// reporting across targets. `mimir scan . src` and `mimir scan a a` are both
+// things users type, and every file covered by more than one target was scanned
+// once per target. That reported each secret multiple times, inflated
+// files_scanned, and — because each finding's path is relative to ITS OWN scan
+// root — produced different fingerprints for one on-disk secret, so a baseline
+// recorded under one invocation did not match the other by fingerprint.
+func TestOverlappingPathsScanEachFileOnce(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "a")
+	require.NoError(t, os.Mkdir(sub, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "x.go"),
+		[]byte("k = \"AKIAFAKEKEYABCDE2347\"\n"), 0o600))
+
+	s := newTestScanner(t)
+
+	t.Run("parent and child", func(t *testing.T) {
+		findings, _, stats, err := s.Scan(context.Background(), []string{dir, sub})
+		require.NoError(t, err)
+		assert.Len(t, findings, 1, "the file is covered twice but must be reported once")
+		assert.Equal(t, 1, stats.FilesScanned, "files_scanned must count files, not visits")
+	})
+
+	t.Run("the same path twice", func(t *testing.T) {
+		findings, _, stats, err := s.Scan(context.Background(), []string{sub, sub})
+		require.NoError(t, err)
+		assert.Len(t, findings, 1)
+		assert.Equal(t, 1, stats.FilesScanned)
+	})
+
+	t.Run("distinct paths are both still scanned", func(t *testing.T) {
+		other := filepath.Join(dir, "b")
+		require.NoError(t, os.Mkdir(other, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(other, "y.go"),
+			[]byte("k = \"AKIAFAKEKEYABCDE2352\"\n"), 0o600))
+
+		findings, _, _, err := s.Scan(context.Background(), []string{sub, other})
+		require.NoError(t, err)
+		assert.Len(t, findings, 2, "dedup must not drop genuinely different files")
+	})
+}
+
+// TestSymlinkLoopTerminates guards the walk against a symlink cycle in a scanned
+// repository. filepath.WalkDir does not follow symlinks, so a loop must not
+// recurse forever; this pins that behaviour rather than trusting it, since a
+// hang on a hostile checkout is a denial of service on anyone's CI.
+func TestSymlinkLoopTerminates(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	require.NoError(t, os.Mkdir(sub, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "s.go"),
+		[]byte("k = \"AKIAFAKEKEYABCDE2347\"\n"), 0o600))
+	if err := os.Symlink(dir, filepath.Join(sub, "loop")); err != nil {
+		t.Skipf("symlinks unavailable on this platform: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s := newTestScanner(t)
+	findings, _, _, err := s.Scan(ctx, []string{dir})
+	require.NoError(t, err)
+	require.NoError(t, ctx.Err(), "the walk must terminate, not spin until the deadline")
+	assert.Len(t, findings, 1, "the real file is reported once; the loop adds nothing")
+}
+
+// TestFileAsDirectTargetKeepsItsName pins the path reported when the scan target
+// IS a file rather than a directory (`mimir scan src/config.go`). scanFile
+// derives the reported path with filepath.Rel(root, file); with root == file
+// that returns ".", so the finding was reported at path "." and — because the
+// path is part of the fingerprint — the SAME secret got a different fingerprint
+// depending on whether the user named the file or its directory, so a baseline
+// recorded one way did not match the other.
+func TestFileAsDirectTargetKeepsItsName(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.go")
+	require.NoError(t, os.WriteFile(file, []byte("k = \"AKIAFAKEKEYABCDE2347\"\n"), 0o600))
+
+	s := newTestScanner(t)
+
+	viaFile, _, _, err := s.Scan(context.Background(), []string{file})
+	require.NoError(t, err)
+	require.Len(t, viaFile, 1)
+	assert.Equal(t, "config.go", viaFile[0].File,
+		"a file named directly must report its own name, not \".\"")
+
+	viaDir, _, _, err := s.Scan(context.Background(), []string{dir})
+	require.NoError(t, err)
+	require.Len(t, viaDir, 1)
+
+	assert.Equal(t, viaDir[0].Fingerprint, viaFile[0].Fingerprint,
+		"the same secret must fingerprint identically however the scan was invoked, "+
+			"or a baseline recorded one way silently fails to match the other")
 }

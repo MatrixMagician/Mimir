@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The scanner shells out to git and normalises path separators, so the
+        # git-aware modes and the hook installer are OS-sensitive by nature —
+        # windows and macOS are load-bearing here, not decoration.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # --git scans current-branch history, so the benchmark and history
+          # tests need real history rather than a depth-1 clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt (must be clean)
+        # testdata/ holds deliberately malformed fixture files, so it is exempt.
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go' | grep -v '^testdata/'))
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go test
+        run: go test ./...
+
+      - name: go test -race
+        run: go test -race ./...
+
+      # A short fuzz run on top of the seed corpora. The committed crashers under
+      # */testdata/fuzz/ already run as regression cases in `go test`; this adds
+      # fresh exploration on every push without a long build.
+      - name: go test -fuzz (short)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./internal/detect/   -run XXXNONE -fuzz FuzzScanLine         -fuzztime 45s
+          go test ./internal/config/   -run XXXNONE -fuzz FuzzLoadFromBytes    -fuzztime 45s
+          go test ./internal/config/   -run XXXNONE -fuzz FuzzMergeConfigs     -fuzztime 30s
+          go test ./internal/suppress/ -run XXXNONE -fuzz FuzzInlineSuppresses -fuzztime 30s
+          go test ./internal/suppress/ -run XXXNONE -fuzz FuzzPathMatcher      -fuzztime 30s
+
+  cross-build:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # hook_nofollow_{unix,windows}.go are build-tagged, so a broken tag only
+      # shows up on the platform it excludes. Compile every target we claim.
+      - name: build all targets
+        shell: bash
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            echo "building $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null . || exit 1
+          done
+
+  self-scan:
+    name: mimir scans itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # Dogfood: the scanner must run clean over its own working tree. The repo
+      # carries deliberate fixture secrets (testdata/, _test.go, the rule regexes
+      # themselves), which the committed .mimirignore excludes — so this job also
+      # proves .mimirignore actually works.
+      - name: scan the working tree
+        run: |
+          go build -o /tmp/mimir .
+          /tmp/mimir scan --no-color .
+
+      # The staged-diff source is what the pre-commit hook runs, so exercise it
+      # rather than trusting that the working-tree walk covers it.
+      - name: scan the staged diff
+        run: /tmp/mimir scan --no-color --staged .

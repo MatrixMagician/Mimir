@@ -3,12 +3,12 @@ package scanner
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,6 +34,19 @@ type Stats struct {
 	// by the suppression layers landing in Plans 02–04.
 	PathsExcluded int
 	Suppressed    map[string]int
+
+	// FilesUnreadable counts files that were selected for scanning but could
+	// not be read (permissions, I/O errors, a line beyond the buffer ceiling).
+	// It is surfaced in the summary because an unscanned file is not a clean
+	// file: without it, "no findings" is indistinguishable from "I never looked".
+	FilesUnreadable int
+
+	// FilesOversized and FilesBinary count files skipped BY POLICY rather than
+	// by failure: past --max-file-size, and detected as binary. They are not
+	// errors and do not affect the exit code, but they are reported so that
+	// "no findings" is never mistaken for "everything was examined".
+	FilesOversized int
+	FilesBinary    int
 }
 
 // Scanner orchestrates the filesystem walk and detection engine.
@@ -81,6 +94,32 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	suppressedCounts := map[string]int{}
 	var filesScanned atomic.Int64
 	var pathsExcluded atomic.Int64
+	var filesUnreadable atomic.Int64
+	var filesOversized atomic.Int64
+	var filesBinary atomic.Int64
+
+	// seen deduplicates the walk across paths. Callers may pass overlapping
+	// targets (`mimir scan . src`, or the same path twice), and without this the
+	// same file is scanned once per covering path — reporting each secret
+	// multiple times, inflating files_scanned, and producing DIFFERENT
+	// fingerprints for one on-disk secret because each is relative to its own
+	// scan root. Keyed by absolute path, so `.` and `./src` resolve to the same
+	// entry regardless of how the user spelled them.
+	seen := map[string]struct{}{}
+	var seenMu sync.Mutex
+	alreadyScanned := func(path string) bool {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = path // fall back to the literal path rather than skipping
+		}
+		seenMu.Lock()
+		defer seenMu.Unlock()
+		if _, dup := seen[abs]; dup {
+			return true
+		}
+		seen[abs] = struct{}{}
+		return false
+	}
 
 	for _, root := range paths {
 		// go.mod pins go 1.25, where each loop iteration already has its own
@@ -134,10 +173,18 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 			// Check file size before enqueueing
 			info, statErr := d.Info()
 			if statErr != nil {
+				// We selected this path but cannot even stat it — that is a file
+				// we did not examine, not a clean one.
+				fmt.Fprintf(os.Stderr, "mimir: WARNING: could not stat %s: %v\n", path, statErr)
+				filesUnreadable.Add(1)
 				return nil
 			}
 			maxBytes := int64(s.cfg.MaxFileSizeMB) * 1024 * 1024
 			if maxBytes > 0 && info.Size() > maxBytes {
+				// A deliberate policy skip, not an error — but still a file we did
+				// not look inside, so it is counted and surfaced in the summary.
+				// Silently omitting it made "no findings" ambiguous.
+				filesOversized.Add(1)
 				if s.cfg.Verbose {
 					fmt.Fprintf(os.Stderr, "mimir: skipping oversized file %s (%d bytes > %d bytes limit)\n",
 						path, info.Size(), maxBytes)
@@ -145,17 +192,37 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 				return nil
 			}
 
-			// Capture path for goroutine closure
+			// Skip a file already scanned via another (overlapping) target.
+			if alreadyScanned(path) {
+				return nil
+			}
+
+			// Capture path for goroutine closure. When the walk target IS this
+			// file (`mimir scan src/config.go`), the file's own directory is its
+			// root: filepath.Rel(file, file) is ".", which would report the
+			// finding at path "." and bake that into the fingerprint, making it
+			// useless in output and unstable across invocations.
 			filePath := path
 			rootPath := root
+			if rootPath == filePath {
+				rootPath = filepath.Dir(filePath)
+			}
 
 			g.Go(func() error {
 				findings, fileSuppressed, fileRaw, scanErr := s.scanFile(ctx, filePath, rootPath)
+				if errors.Is(scanErr, errSkippedBinary) {
+					filesBinary.Add(1)
+					return nil
+				}
 				if scanErr != nil {
-					if s.cfg.Verbose {
-						fmt.Fprintf(os.Stderr, "mimir: error scanning %s: %v\n", filePath, scanErr)
-					}
-					return nil // file errors are non-fatal
+					// A file we could not read is NOT a clean file. Report it on
+					// stderr unconditionally (not just under --verbose) and count
+					// it, so "✓ no findings" can never quietly mean "I skipped the
+					// one file your key was in". Still non-fatal: one unreadable
+					// file must not abandon the rest of the scan.
+					fmt.Fprintf(os.Stderr, "mimir: WARNING: could not scan %s: %v\n", filePath, scanErr)
+					filesUnreadable.Add(1)
+					return nil
 				}
 				filesScanned.Add(1)
 				if len(findings) > 0 || len(fileSuppressed) > 0 {
@@ -186,25 +253,20 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 		return nil, nil, Stats{}, err
 	}
 
-	// Sort deterministically: File → Line → Column
-	sort.Slice(allFindings, func(i, j int) bool {
-		if allFindings[i].File != allFindings[j].File {
-			return allFindings[i].File < allFindings[j].File
-		}
-		if allFindings[i].Line != allFindings[j].Line {
-			return allFindings[i].Line < allFindings[j].Line
-		}
-		return allFindings[i].Column < allFindings[j].Column
-	})
+	// Deterministic order: File → Line → Column.
+	finding.Sort(allFindings)
 
 	// suppressedCounts was accumulated during the walk (D-11). It counts every
 	// inline-ignored finding regardless of the annotate-vs-drop branch, so the
 	// summary is accurate even when suppressed findings were dropped at scan time.
 	return allFindings, rawByFP, Stats{
-		FilesScanned:  int(filesScanned.Load()),
-		PathsExcluded: int(pathsExcluded.Load()),
-		Duration:      time.Since(start),
-		Suppressed:    suppressedCounts,
+		FilesScanned:    int(filesScanned.Load()),
+		PathsExcluded:   int(pathsExcluded.Load()),
+		FilesUnreadable: int(filesUnreadable.Load()),
+		FilesOversized:  int(filesOversized.Load()),
+		FilesBinary:     int(filesBinary.Load()),
+		Duration:        time.Since(start),
+		Suppressed:      suppressedCounts,
 	}, nil
 }
 
@@ -217,6 +279,31 @@ func relForMatch(root, p string) string {
 		rel = p
 	}
 	return strings.TrimPrefix(filepath.ToSlash(rel), "./")
+}
+
+// errSkippedBinary marks a file skipped by the binary heuristic. It is a
+// sentinel, not a failure: the walker counts it separately from real read
+// errors, which affect the exit code.
+var errSkippedBinary = errors.New("skipped: binary file")
+
+// maxLineBytes returns the largest single line scanFile will hold, derived from
+// the configured file-size limit (a line cannot be longer than its file). It is
+// a ceiling for bufio's on-demand growth, not a preallocation, so ordinary files
+// still cost one 64 KiB buffer.
+//
+// With no file-size limit (0 = unlimited) it falls back to a generous absolute
+// cap rather than growing without bound, so a pathological one-line file cannot
+// exhaust memory.
+func maxLineBytes(maxFileSizeMB int) int {
+	const unlimitedCap = 256 << 20 // 256 MiB
+	if maxFileSizeMB <= 0 {
+		return unlimitedCap
+	}
+	n := maxFileSizeMB * 1024 * 1024
+	if n < 64*1024 {
+		return 64 * 1024 // never below bufio's starting buffer
+	}
+	return n
 }
 
 // scanFile reads a single file and returns its findings plus a per-reason
@@ -245,7 +332,10 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	header = header[:n]
 
 	if isBinary(header) {
-		return nil, nil, fileRaw, nil // skip binary files
+		// Binary files are skipped by policy (the NUL heuristic). Report it so
+		// the count reaches the summary: a mis-sniffed text file would otherwise
+		// vanish from the scan without a trace.
+		return nil, nil, fileRaw, errSkippedBinary
 	}
 
 	// Rewind and read full content line by line
@@ -266,8 +356,14 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 	suppressed := map[string]int{}
 	lineNum := 0
 	scanner := bufio.NewScanner(f)
-	// Increase scanner buffer for long lines
-	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	// Start small and let bufio grow the buffer on demand, up to the largest
+	// line we are willing to hold. The cap follows the file-size limit, because
+	// a line cannot exceed the file that contains it: a 64 KiB cap silently
+	// skipped ENTIRE FILES whose lines were longer, and minified JS, bundled
+	// assets, and single-line JSON routinely exceed that. A skipped file is the
+	// worst failure this tool has — it reports "clean" while a live key sits in
+	// the tree — so the ceiling has to clear realistic input.
+	scanner.Buffer(make([]byte, 64*1024), maxLineBytes(s.cfg.MaxFileSizeMB))
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -276,21 +372,11 @@ func (s *Scanner) scanFile(ctx context.Context, filePath, scanRoot string) ([]fi
 		}
 		lineNum++
 		line := scanner.Text()
+		// Inline-ignore suppression (SUP-01/D-12): a finding whose own source
+		// line carries a mimir-ignore directive for its rule is counted and
+		// either dropped (default) or annotated-and-kept (--show-suppressed).
 		lineFindings := s.engine.ScanLine(line, relPath, lineNum, fileRaw)
-		// Inline-ignore suppression (SUP-01/D-12): if a finding's own source
-		// line carries a mimir-ignore directive for its rule, count it and
-		// either drop it (default) or annotate-and-keep (--show-suppressed).
-		for i := range lineFindings {
-			if suppress.InlineSuppresses(line, lineFindings[i].RuleID) {
-				suppressed[suppress.InlineReason]++
-				if !s.ShowSuppressed {
-					continue // drop: do not append
-				}
-				lineFindings[i].Suppressed = true
-				lineFindings[i].SuppressionReason = suppress.InlineReason
-			}
-			findings = append(findings, lineFindings[i])
-		}
+		findings = append(findings, suppress.FilterInline(line, lineFindings, suppressed, s.ShowSuppressed)...)
 	}
 	if err := scanner.Err(); err != nil {
 		return findings, suppressed, fileRaw, err

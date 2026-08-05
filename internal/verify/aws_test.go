@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/mimir/internal/finding"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,11 @@ func TestNoAmbientCreds(t *testing.T) {
 	const passedKey = "AKIAFAKEKEYABCDE2345"
 	const passedSecret = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123"
 
-	provider := staticProviderFor(passedKey, passedSecret)
+	// Mirrors the credential source Verify constructs (aws.go): static-only,
+	// never config.LoadDefaultConfig. The aws-sdk-go-v2/config module is not even
+	// a dependency of this repo, so an ambient-resolving rewrite would fail to
+	// build before it could fail this test.
+	provider := credentials.NewStaticCredentialsProvider(passedKey, passedSecret, "")
 	creds, err := provider.Retrieve(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, passedKey, creds.AccessKeyID,

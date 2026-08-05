@@ -61,7 +61,6 @@ type rawConfig struct {
 type extendSection struct {
 	UseDefault    bool     `toml:"use_default"`
 	DisabledRules []string `toml:"disabled_rules"`
-	Path          string   `toml:"path"` // reserved for Phase 2; not implemented in Phase 1
 	// UseDefaultAllowlists is the master toggle for the shipped default
 	// path-prune globs (SUP-04, D-07). A pointer so absence (nil) means
 	// default-ON; only an explicit `use_default_allowlists = false` disables them.
@@ -90,7 +89,13 @@ type rawAllowlist struct {
 // LoadDefault loads and validates the embedded default configuration.
 // It returns an error if any rule regex fails RE2 compilation.
 func LoadDefault() (*Config, error) {
-	raw, err := parseBytes(extconfig.DefaultConfig)
+	return loadFromBytes(extconfig.DefaultConfig)
+}
+
+// loadFromBytes decodes TOML config bytes and compiles all regexes into a
+// validated Config.
+func loadFromBytes(data []byte) (*Config, error) {
+	raw, err := parseBytes(data)
 	if err != nil {
 		return nil, err
 	}
@@ -277,12 +282,4 @@ func compile(raw *rawConfig) (*Config, error) {
 	return cfg, nil
 }
 
-// loadFromBytes decodes TOML config bytes, compiles all regexes, and
-// returns a validated Config. Used by LoadDefault and tests.
-func loadFromBytes(data []byte) (*Config, error) {
-	raw, err := parseBytes(data)
-	if err != nil {
-		return nil, err
-	}
-	return compile(raw)
-}
+

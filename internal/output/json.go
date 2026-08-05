@@ -35,6 +35,14 @@ func WriteJSON(w io.Writer, findings []finding.Finding, stats scanner.Stats) err
 		findings = []finding.Finding{}
 	}
 
+	// Suppressed is nil-normalized so the omitempty field is dropped entirely
+	// (preserving the OUT-02 byte-identical schema when nothing was suppressed)
+	// rather than serializing as "suppressed":{}.
+	suppressed := stats.Suppressed
+	if len(suppressed) == 0 {
+		suppressed = nil
+	}
+
 	result := ScanResult{
 		Findings: findings,
 		Summary: ScanSummary{
@@ -42,21 +50,11 @@ func WriteJSON(w io.Writer, findings []finding.Finding, stats scanner.Stats) err
 			FindingCount:  len(findings),
 			DurationMs:    stats.Duration.Milliseconds(),
 			PathsExcluded: stats.PathsExcluded,
-			Suppressed:    emptyToNil(stats.Suppressed),
+			Suppressed:    suppressed,
 		},
 	}
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(result)
-}
-
-// emptyToNil returns nil for an empty map so the omitempty Suppressed field is
-// dropped entirely (preserving the OUT-02 byte-identical schema when nothing was
-// suppressed) rather than serializing as "suppressed":{}.
-func emptyToNil(m map[string]int) map[string]int {
-	if len(m) == 0 {
-		return nil
-	}
-	return m
 }

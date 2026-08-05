@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -252,12 +253,6 @@ func resolveScanRoot(paths []string) string {
 	if info.IsDir() {
 		return paths[0]
 	}
-	// First path is a file; use its directory
-	dir := paths[0]
-	for i := len(dir) - 1; i >= 0; i-- {
-		if dir[i] == '/' || dir[i] == '\\' {
-			return dir[:i]
-		}
-	}
-	return "."
+	// First path is a file; use its directory.
+	return filepath.Dir(paths[0])
 }

@@ -85,9 +85,20 @@ type Verification struct {
 	Provider string `json:"provider"`
 }
 
-// Sort orders findings deterministically by File → Line → Column, in place.
-// Every scan source (working tree, git history, staged diff) sorts through this
-// one function so output and baselines stay diff-stable across modes.
+// Sort orders findings deterministically, in place. Every scan source (working
+// tree, git history, staged diff) sorts through this one function so output and
+// baselines stay diff-stable across modes.
+//
+// The order is File → Line → Column → RuleID → Fingerprint. The first three are
+// the reported location; the last two are tiebreakers, and they are load-bearing
+// rather than decorative. Two rules can match the SAME secret at the SAME
+// file:line:column (e.g. a `token: gho_...` line matches both github-oauth and
+// the generic-api-key heuristic). On a File/Line/Column-only comparator those
+// two compare equal, and since the concurrent walk appends findings in
+// goroutine-completion order, an unstable sort was free to emit them in either
+// order — so consecutive scans of an unchanged tree produced different output
+// and therefore different baselines. Extending the comparator to a total order
+// makes the result independent of both goroutine timing and sort stability.
 func Sort(findings []Finding) {
 	slices.SortFunc(findings, func(a, b Finding) int {
 		if c := strings.Compare(a.File, b.File); c != 0 {
@@ -96,7 +107,13 @@ func Sort(findings []Finding) {
 		if c := cmp.Compare(a.Line, b.Line); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.Column, b.Column)
+		if c := cmp.Compare(a.Column, b.Column); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.RuleID, b.RuleID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Fingerprint, b.Fingerprint)
 	})
 }
 

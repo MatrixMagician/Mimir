@@ -3,6 +3,7 @@ package finding_test
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -215,4 +216,54 @@ func TestNoRawSecretInAnyField(t *testing.T) {
 				"field %s must not contain the raw secret value", field.Name)
 		}
 	}
+}
+
+// TestSortIsTotalOrder is the determinism regression test. Two rules can match
+// the same secret at the same file:line:column (e.g. a `token: gho_...` line
+// matches both github-oauth and the generic-api-key heuristic). Before Sort
+// carried RuleID/Fingerprint tiebreakers, such findings compared EQUAL, and the
+// unstable sort emitted them in whichever order the concurrent walk happened to
+// append them — so two scans of an unchanged tree produced different JSON and
+// therefore different baselines. Sorting several distinct permutations of the
+// same set must now converge on one identical order.
+func TestSortIsTotalOrder(t *testing.T) {
+	tied := []finding.Finding{
+		{RuleID: "github-oauth", File: "a.go", Line: 3, Column: 8, Fingerprint: "a.go:github-oauth:1111"},
+		{RuleID: "generic-api-key", File: "a.go", Line: 3, Column: 8, Fingerprint: "a.go:generic-api-key:1111"},
+		{RuleID: "aws-access-token", File: "a.go", Line: 3, Column: 8, Fingerprint: "a.go:aws-access-token:2222"},
+		{RuleID: "generic-api-key", File: "a.go", Line: 1, Column: 1, Fingerprint: "a.go:generic-api-key:3333"},
+		{RuleID: "generic-api-key", File: "b.go", Line: 3, Column: 8, Fingerprint: "b.go:generic-api-key:4444"},
+	}
+
+	fingerprintsOf := func(fs []finding.Finding) []string {
+		out := make([]string, len(fs))
+		for i, f := range fs {
+			out[i] = f.Fingerprint
+		}
+		return out
+	}
+
+	base := slices.Clone(tied)
+	finding.Sort(base)
+	want := fingerprintsOf(base)
+
+	// Every permutation of the same set must sort to the same sequence.
+	perm := slices.Clone(tied)
+	for i := range perm {
+		shuffled := slices.Clone(tied)
+		// Rotate by i to get a different input order each round.
+		shuffled = append(shuffled[i:], shuffled[:i]...)
+		finding.Sort(shuffled)
+		assert.Equal(t, want, fingerprintsOf(shuffled),
+			"Sort must be a total order: rotation %d produced a different sequence", i)
+	}
+
+	// And the order itself must be the documented File → Line → Column → RuleID.
+	assert.Equal(t, []string{
+		"a.go:generic-api-key:3333",
+		"a.go:aws-access-token:2222",
+		"a.go:generic-api-key:1111",
+		"a.go:github-oauth:1111",
+		"b.go:generic-api-key:4444",
+	}, want)
 }

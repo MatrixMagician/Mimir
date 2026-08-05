@@ -13,7 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const mimirTestBin = "/tmp/mimir-cmd-test"
+// mimirTestBin is the binary TestMain builds for the whole package. It is
+// resolved at run time rather than hardcoded to "/tmp/...": Windows has no /tmp,
+// and an executable there needs a .exe suffix or exec silently fails to launch
+// it (exit -1 with empty stderr, which is how this surfaced in CI).
+var mimirTestBin = filepath.Join(os.TempDir(), "mimir-cmd-test"+exeSuffix())
+
+// exeSuffix returns the platform's executable extension.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
 
 // TestMain builds the mimir binary once for all tests in this package.
 func TestMain(m *testing.M) {

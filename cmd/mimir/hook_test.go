@@ -164,7 +164,9 @@ func mimirBinDir(t *testing.T) string {
 	binDir := t.TempDir()
 	src, err := os.ReadFile(mimirTestBin) //nolint:gosec
 	require.NoError(t, err, "test binary must exist (built in TestMain)")
-	dst := filepath.Join(binDir, "mimir")
+	// The installed hook execs bare `mimir`, so the copy must carry the
+	// platform's executable extension for PATH resolution to find it.
+	dst := filepath.Join(binDir, "mimir"+exeSuffix())
 	require.NoError(t, os.WriteFile(dst, src, 0755)) //nolint:gosec
 	return binDir
 }

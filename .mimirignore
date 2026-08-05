@@ -1,7 +1,7 @@
 # Mimir's own .mimirignore.
 #
 # This repo is a secret scanner, so it is full of deliberately fake credentials:
-# test fixtures, rule regexes, and planning docs that quote example tokens. They
+# test fixtures and rule regexes that necessarily contain example tokens. They
 # are not leaks, and they would otherwise make `mimir scan .` fail on its own
 # source tree — which is what the CI self-scan job runs.
 #
@@ -21,11 +21,6 @@ testdata/**
 
 # The default ruleset quotes token prefixes inside its own regexes.
 config/mimir.toml
-
-# Planning/spec docs quote example tokens in prose.
-.planning/**
-.gsd/**
-.claude/**
 
 # Tool config that names secret-ish patterns.
 .semgrepignore

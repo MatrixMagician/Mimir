@@ -1,4 +1,10 @@
-<!-- GSD:project-start source:PROJECT.md -->
+# Mimir — project context
+
+Background notes for anyone (human or AI assistant) working on this codebase:
+what it is, what it must not regress, and why the dependencies were chosen.
+
+See `README.md` for user-facing documentation.
+
 ## Project
 
 **Mimir**
@@ -14,9 +20,7 @@ Mimir is a fast, Go-based secret scanner that finds leaked credentials — API k
 - **Security**: Findings output must redact secret values by default; live verification must be opt-in and not leak credentials in logs.
 - **Usability**: Low false-positive rate is a hard requirement for adoption — suppression must be ergonomic.
 - **Distribution**: Prefer zero/standard-library-leaning dependencies where reasonable to keep the binary lean and the codebase legible.
-<!-- GSD:project-end -->
 
-<!-- GSD:stack-start source:research/STACK.md -->
 ## Technology Stack
 
 ## Recommended Stack
@@ -109,44 +113,3 @@ Mimir is a fast, Go-based secret scanner that finds leaked credentials — API k
 - Context7 `/go-git/go-git` — `Log(LogOptions)` commit iteration API and in-memory storage model (used to assess history-walk cost). **HIGH.**
 - dlclark/regexp2 docs (pkg.go.dev) — confirms regexp2 is a backtracking .NET-style engine; recommended only when RE2 features are insufficient. **HIGH.**
 - WebSearch (rafter.so, jit.io, lookingatcomputer.substack.com, blog.miloslavhomer.cz, detect-secrets source) — tool comparison, Shannon entropy thresholds (~3.0–4.5 hex/base64), layered detection patterns. **MEDIUM** (corroborated across multiple sources + primary `go.mod` evidence).
-<!-- GSD:stack-end -->
-
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-## Conventions
-
-Conventions not yet established. Will populate as patterns emerge during development.
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
-## Architecture
-
-Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
-
-<!-- GSD:skills-start source:skills/ -->
-## Project Skills
-
-No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
-<!-- GSD:skills-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->

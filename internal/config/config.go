@@ -12,25 +12,23 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-// Rule defines a single secret-detection rule with its compiled regex.
+// Rule defines a single secret-detection rule with its compiled regex. Only the
+// fields the engine reads survive compilation — the raw regex/description
+// strings live on rawRule, which is where config-error messages quote them.
 type Rule struct {
-	ID            string `toml:"id"`
-	Description   string `toml:"description"`
-	Regex         string `toml:"regex"`
+	ID            string
 	CompiledRegex *regexp.Regexp
-	Entropy       float64     `toml:"entropy"`
-	Keywords      []string    `toml:"keywords"`
-	SecretGroup   int         `toml:"secret_group"`
-	IsHeuristic   bool        `toml:"is_heuristic"`
-	Allowlists    []Allowlist `toml:"allowlists"`
+	Entropy       float64
+	Keywords      []string
+	SecretGroup   int
+	IsHeuristic   bool
+	Allowlists    []Allowlist
 }
 
-// Allowlist holds regex patterns and/or path patterns used to suppress findings.
+// Allowlist holds the compiled regex and path patterns used to suppress
+// findings, by value and by path respectively.
 type Allowlist struct {
-	Description     string   `toml:"description"`
-	Regexes         []string `toml:"regexes"`
 	CompiledRegexes []*regexp.Regexp
-	Paths           []string `toml:"paths"`
 	CompiledPaths   []*regexp.Regexp
 }
 
@@ -216,11 +214,7 @@ func compile(raw *rawConfig) (*Config, error) {
 	// Compile and validate global allowlist regexes
 	compiledAllowlists := make([]Allowlist, 0, len(raw.Allowlists))
 	for _, al := range raw.Allowlists {
-		compiled := Allowlist{
-			Description: al.Description,
-			Regexes:     al.Regexes,
-			Paths:       al.Paths,
-		}
+		var compiled Allowlist
 		for _, pattern := range al.Regexes {
 			re, err := regexp.Compile(pattern)
 			if err != nil {
@@ -249,8 +243,6 @@ func compile(raw *rawConfig) (*Config, error) {
 
 		rule := Rule{
 			ID:            rr.ID,
-			Description:   rr.Description,
-			Regex:         rr.Regex,
 			CompiledRegex: re,
 			Entropy:       rr.Entropy,
 			Keywords:      rr.Keywords,
@@ -260,11 +252,7 @@ func compile(raw *rawConfig) (*Config, error) {
 
 		// Compile per-rule allowlist regexes
 		for _, al := range rr.Allowlists {
-			compiledAl := Allowlist{
-				Description: al.Description,
-				Regexes:     al.Regexes,
-				Paths:       al.Paths,
-			}
+			var compiledAl Allowlist
 			for _, pattern := range al.Regexes {
 				alRe, alErr := regexp.Compile(pattern)
 				if alErr != nil {

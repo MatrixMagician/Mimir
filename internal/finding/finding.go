@@ -25,16 +25,14 @@ func toSlash(path string) string {
 // Finding represents a single detected secret. All secret values are redacted —
 // the raw value never appears in any exported field.
 type Finding struct {
-	RuleID      string  `json:"rule_id"`
-	Description string  `json:"description,omitempty"`
-	File        string  `json:"file"`        // repo-relative, forward-slash
-	Line        int     `json:"line"`        // 1-indexed
-	Column      int     `json:"column"`      // 1-indexed
-	Match       string  `json:"match"`       // surrounding context, redacted
-	Secret      string  `json:"secret"`      // token, redacted; NEVER raw value
-	Fingerprint string  `json:"fingerprint"` // path:rule_id:sha256[:16]
-	Entropy     float32 `json:"entropy,omitempty"`
-	IsHeuristic bool    `json:"is_heuristic,omitempty"`
+	RuleID      string `json:"rule_id"`
+	File        string `json:"file"`        // repo-relative, forward-slash
+	Line        int    `json:"line"`        // 1-indexed
+	Column      int    `json:"column"`      // 1-indexed
+	Match       string `json:"match"`       // surrounding context, redacted
+	Secret      string `json:"secret"`      // token, redacted; NEVER raw value
+	Fingerprint string `json:"fingerprint"` // path:rule_id:sha256[:16]
+	IsHeuristic bool   `json:"is_heuristic,omitempty"`
 
 	// Suppressed and SuppressionReason (D-12) are populated by the suppression
 	// layers when a finding is withheld but still surfaced via --show-suppressed.

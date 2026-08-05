@@ -1,0 +1,25 @@
+# Normalise line endings so a Windows checkout does not rewrite LF to CRLF.
+#
+# Without this, git's autocrlf conversion gives Windows a CRLF working tree, and
+# `gofmt -l` then reports EVERY Go file as unformatted — gofmt mandates LF. That
+# broke the Windows CI job while the code was in fact fine.
+#
+# Go tooling (gofmt, go test) expects LF on every platform, so pin text files
+# rather than relying on each developer's core.autocrlf setting.
+
+* text=auto eol=lf
+
+# Explicit for the file types that must be LF for tooling to agree.
+*.go    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+*.toml  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.sh    text eol=lf
+
+# Fuzz corpora are opaque byte sequences: any conversion changes the input the
+# crasher reproduces, so treat them as binary.
+testdata/fuzz/**       binary
+**/testdata/fuzz/**    binary

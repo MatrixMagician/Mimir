@@ -98,6 +98,29 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 	var filesOversized atomic.Int64
 	var filesBinary atomic.Int64
 
+	// seen deduplicates the walk across paths. Callers may pass overlapping
+	// targets (`mimir scan . src`, or the same path twice), and without this the
+	// same file is scanned once per covering path — reporting each secret
+	// multiple times, inflating files_scanned, and producing DIFFERENT
+	// fingerprints for one on-disk secret because each is relative to its own
+	// scan root. Keyed by absolute path, so `.` and `./src` resolve to the same
+	// entry regardless of how the user spelled them.
+	seen := map[string]struct{}{}
+	var seenMu sync.Mutex
+	alreadyScanned := func(path string) bool {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = path // fall back to the literal path rather than skipping
+		}
+		seenMu.Lock()
+		defer seenMu.Unlock()
+		if _, dup := seen[abs]; dup {
+			return true
+		}
+		seen[abs] = struct{}{}
+		return false
+	}
+
 	for _, root := range paths {
 		// go.mod pins go 1.25, where each loop iteration already has its own
 		// `root` — no pre-1.22 `root := root` capture shadow is needed (IN-01).
@@ -166,6 +189,11 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) ([]finding.Finding, 
 					fmt.Fprintf(os.Stderr, "mimir: skipping oversized file %s (%d bytes > %d bytes limit)\n",
 						path, info.Size(), maxBytes)
 				}
+				return nil
+			}
+
+			// Skip a file already scanned via another (overlapping) target.
+			if alreadyScanned(path) {
 				return nil
 			}
 

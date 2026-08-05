@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/mimir/internal/config"
 	"github.com/MatrixMagician/mimir/internal/detect"
@@ -200,4 +201,70 @@ func TestMaxLineBytes(t *testing.T) {
 	assert.GreaterOrEqual(t, maxLineBytes(0), 64*1024, "unlimited still has a ceiling")
 	assert.Equal(t, 64*1024, maxLineBytes(-1)/(4*1024), "negative is treated as unlimited")
 	assert.GreaterOrEqual(t, maxLineBytes(1), 64*1024, "never below bufio's starting buffer")
+}
+
+// TestOverlappingPathsScanEachFileOnce is the regression test for duplicate
+// reporting across targets. `mimir scan . src` and `mimir scan a a` are both
+// things users type, and every file covered by more than one target was scanned
+// once per target. That reported each secret multiple times, inflated
+// files_scanned, and — because each finding's path is relative to ITS OWN scan
+// root — produced different fingerprints for one on-disk secret, so a baseline
+// recorded under one invocation did not match the other by fingerprint.
+func TestOverlappingPathsScanEachFileOnce(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "a")
+	require.NoError(t, os.Mkdir(sub, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "x.go"),
+		[]byte("k = \"AKIAFAKEKEYABCDE2347\"\n"), 0o600))
+
+	s := newTestScanner(t)
+
+	t.Run("parent and child", func(t *testing.T) {
+		findings, _, stats, err := s.Scan(context.Background(), []string{dir, sub})
+		require.NoError(t, err)
+		assert.Len(t, findings, 1, "the file is covered twice but must be reported once")
+		assert.Equal(t, 1, stats.FilesScanned, "files_scanned must count files, not visits")
+	})
+
+	t.Run("the same path twice", func(t *testing.T) {
+		findings, _, stats, err := s.Scan(context.Background(), []string{sub, sub})
+		require.NoError(t, err)
+		assert.Len(t, findings, 1)
+		assert.Equal(t, 1, stats.FilesScanned)
+	})
+
+	t.Run("distinct paths are both still scanned", func(t *testing.T) {
+		other := filepath.Join(dir, "b")
+		require.NoError(t, os.Mkdir(other, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(other, "y.go"),
+			[]byte("k = \"AKIAFAKEKEYABCDE2352\"\n"), 0o600))
+
+		findings, _, _, err := s.Scan(context.Background(), []string{sub, other})
+		require.NoError(t, err)
+		assert.Len(t, findings, 2, "dedup must not drop genuinely different files")
+	})
+}
+
+// TestSymlinkLoopTerminates guards the walk against a symlink cycle in a scanned
+// repository. filepath.WalkDir does not follow symlinks, so a loop must not
+// recurse forever; this pins that behaviour rather than trusting it, since a
+// hang on a hostile checkout is a denial of service on anyone's CI.
+func TestSymlinkLoopTerminates(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	require.NoError(t, os.Mkdir(sub, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "s.go"),
+		[]byte("k = \"AKIAFAKEKEYABCDE2347\"\n"), 0o600))
+	if err := os.Symlink(dir, filepath.Join(sub, "loop")); err != nil {
+		t.Skipf("symlinks unavailable on this platform: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s := newTestScanner(t)
+	findings, _, _, err := s.Scan(ctx, []string{dir})
+	require.NoError(t, err)
+	require.NoError(t, ctx.Err(), "the walk must terminate, not spin until the deadline")
+	assert.Len(t, findings, 1, "the real file is reported once; the loop adds nothing")
 }

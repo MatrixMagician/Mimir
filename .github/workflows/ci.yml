@@ -54,12 +54,19 @@ jobs:
       - name: go test -race
         run: go test -race ./...
 
-      # A short fuzz run on top of the seed corpus. The committed crashers under
-      # internal/detect/testdata/fuzz/ already run as regression cases in `go
-      # test`; this adds fresh exploration on every push without a long build.
+      # A short fuzz run on top of the seed corpora. The committed crashers under
+      # */testdata/fuzz/ already run as regression cases in `go test`; this adds
+      # fresh exploration on every push without a long build.
       - name: go test -fuzz (short)
         if: runner.os == 'Linux'
-        run: go test ./internal/detect/ -run XXXNONE -fuzz FuzzScanLine -fuzztime 60s
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./internal/detect/   -run XXXNONE -fuzz FuzzScanLine         -fuzztime 45s
+          go test ./internal/config/   -run XXXNONE -fuzz FuzzLoadFromBytes    -fuzztime 45s
+          go test ./internal/config/   -run XXXNONE -fuzz FuzzMergeConfigs     -fuzztime 30s
+          go test ./internal/suppress/ -run XXXNONE -fuzz FuzzInlineSuppresses -fuzztime 30s
+          go test ./internal/suppress/ -run XXXNONE -fuzz FuzzPathMatcher      -fuzztime 30s
 
   cross-build:
     name: cross-compile
